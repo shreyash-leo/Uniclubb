@@ -1,0 +1,41 @@
+name: uniclub
+description: "A campus club and event community app."
+
+publish_to: 'none'
+
+version: 2.0.0+2
+
+environment:
+  sdk: ">=3.6.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  cupertino_icons: ^1.0.8
+  supabase_flutter: ^2.16.0
+  flutter_riverpod: ^2.6.1
+  image_picker: ^1.2.1
+  file_picker: ^11.0.2
+  http: ^1.6.0
+  cached_network_image: ^3.4.1
+  csv: ^5.1.1
+  path_provider: ^2.1.2
+  share_plus: ^12.0.1
+  intl: ^0.20.2
+  url_launcher: ^6.3.2
+  qr_flutter: ^4.1.0
+  mobile_scanner: ^7.4.0
+  uuid: ^4.5.3
+  package_info_plus: ^8.3.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true
+  # CocoaPods remains the stable iOS plugin path for the current share plugin.
+  config:
+    enable-swift-package-manager: false
