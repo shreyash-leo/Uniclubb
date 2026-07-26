@@ -7,7 +7,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../core/supabase/uniclub_repository.dart';
 import '../../shared/notification_action.dart';
 import '../../shared/widgets.dart';
-import '../event/event_detail_screen.dart';
+import '../search/global_search_screen.dart';
 import 'club_dashboard_screen.dart';
 
 class ClubsHubScreen extends StatefulWidget {
@@ -26,12 +26,12 @@ class _ClubsHubScreenState extends State<ClubsHubScreen> {
       length: 3,
       child: Scaffold(
         appBar: AppBar(
-          title: const Text('Your clubs'),
+          title: const Text('Clubs'),
           actions: const [NotificationAction()],
           bottom: const TabBar(
             tabs: [
+              Tab(text: 'Discover clubs'),
               Tab(text: 'My clubs'),
-              Tab(text: 'My events'),
               Tab(text: 'Leaderboard'),
             ],
           ),
@@ -51,8 +51,8 @@ class _ClubsHubScreenState extends State<ClubsHubScreen> {
         ),
         body: TabBarView(
           children: [
+            const GlobalSearchScreen(embedded: true, clubsOnly: true),
             _MyClubs(repo: repo),
-            _MyEvents(repo: repo),
             _Leaderboard(repo: repo),
           ],
         ),
@@ -143,63 +143,6 @@ class _MyClubs extends StatelessWidget {
   }
 }
 
-class _MyEvents extends StatelessWidget {
-  const _MyEvents({required this.repo});
-  final UniClubRepository repo;
-
-  @override
-  Widget build(BuildContext context) {
-    return FutureBuilder<List<Map<String, dynamic>>>(
-      future: repo.myRegistrations(),
-      builder: (context, snapshot) {
-        if (snapshot.hasError) {
-          return AsyncErrorState(error: snapshot.error);
-        }
-        if (!snapshot.hasData) {
-          return const SkeletonList();
-        }
-        if (snapshot.data!.isEmpty) {
-          return const EmptyState(
-            icon: Icons.event_available_outlined,
-            title: 'No event participation yet',
-            message: 'Events you register for will be collected here.',
-          );
-        }
-        return ListView.separated(
-          padding: const EdgeInsets.fromLTRB(16, 16, 16, 104),
-          itemCount: snapshot.data!.length,
-          separatorBuilder: (_, __) => const SizedBox(height: 10),
-          itemBuilder: (context, index) {
-            final registration = snapshot.data![index];
-            final event = registration['events'] as Map<String, dynamic>? ?? {};
-            return Card(
-              child: ListTile(
-                leading: NetworkPicture(
-                  url: event['flyer_url'] as String?,
-                  width: 58,
-                  height: 58,
-                  borderRadius: 12,
-                ),
-                title: Text('${event['title'] ?? 'Event'}'),
-                subtitle: Text(formatDate(event['starts_at'])),
-                trailing: StatusChip('${registration['status']}'),
-                onTap: event.isEmpty
-                    ? null
-                    : () => Navigator.push(
-                          context,
-                          MaterialPageRoute<void>(
-                            builder: (_) => EventDetailScreen(event: event),
-                          ),
-                        ),
-              ),
-            );
-          },
-        );
-      },
-    );
-  }
-}
-
 class _Leaderboard extends StatelessWidget {
   const _Leaderboard({required this.repo});
   final UniClubRepository repo;
@@ -223,42 +166,121 @@ class _Leaderboard extends StatelessWidget {
               icon: Icons.emoji_events_outlined,
               title: 'Leaderboard is waiting for activity');
         }
-        return ListView.separated(
+        final rows = List<Map<String, dynamic>>.from(snapshot.data!)
+          ..sort((a, b) => _total(b).compareTo(_total(a)));
+        final leaders = rows.take(3).toList(growable: false);
+        return ListView(
           padding: const EdgeInsets.fromLTRB(16, 16, 16, 104),
-          itemCount: snapshot.data!.length,
-          separatorBuilder: (_, __) => const SizedBox(height: 8),
-          itemBuilder: (_, index) {
-            final row = snapshot.data![index];
-            final club = row['clubs'] as Map<String, dynamic>? ?? {};
-            final total = (row['engagement_points'] as num? ?? 0) +
-                (row['event_points'] as num? ?? 0) +
-                (row['attendance_points'] as num? ?? 0) +
-                (row['community_points'] as num? ?? 0);
-            return Card(
-              color: index < 3
-                  ? Theme.of(context).colorScheme.primaryContainer
-                  : null,
-              child: ListTile(
-                leading: CircleAvatar(
-                  backgroundImage: club['logo_url'] == null
-                      ? null
-                      : NetworkImage('${club['logo_url']}'),
-                  child:
-                      club['logo_url'] == null ? Text('#${index + 1}') : null,
+          children: [
+            Text('Campus leaderboard',
+                style: Theme.of(context).textTheme.headlineSmall),
+            const SizedBox(height: 4),
+            Text(
+              'Ranked by participation, events, attendance and community impact.',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+            const SizedBox(height: 16),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: leaders.asMap().entries.map((entry) {
+                final club =
+                    entry.value['clubs'] as Map<String, dynamic>? ?? {};
+                final rank = entry.key + 1;
+                return Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 4),
+                    child: Container(
+                      padding: EdgeInsets.fromLTRB(
+                          8, rank == 1 ? 18 : 12, 8, rank == 1 ? 18 : 12),
+                      decoration: BoxDecoration(
+                        color: Theme.of(context).colorScheme.primaryContainer,
+                        borderRadius: BorderRadius.circular(18),
+                      ),
+                      child: Column(
+                        children: [
+                          Text(
+                              rank == 1
+                                  ? '🏆'
+                                  : rank == 2
+                                      ? '🥈'
+                                      : '🥉',
+                              style: const TextStyle(fontSize: 24)),
+                          const SizedBox(height: 6),
+                          NetworkPicture(
+                            url: club['logo_url'] as String?,
+                            width: 50,
+                            height: 50,
+                            borderRadius: 25,
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            '${club['name'] ?? 'Club'}',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(fontWeight: FontWeight.w700),
+                          ),
+                          Text('${_total(entry.value)} pts'),
+                        ],
+                      ),
+                    ),
+                  ),
+                );
+              }).toList(),
+            ),
+            const SizedBox(height: 20),
+            const SectionHeader('Full rankings'),
+            const SizedBox(height: 8),
+            ...rows.asMap().entries.map((entry) {
+              final index = entry.key;
+              final row = entry.value;
+              final club = row['clubs'] as Map<String, dynamic>? ?? {};
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: Card(
+                  child: ListTile(
+                    leading: SizedBox(
+                      width: 54,
+                      child: Row(
+                        children: [
+                          Text('#${index + 1}',
+                              style:
+                                  const TextStyle(fontWeight: FontWeight.w700)),
+                          const SizedBox(width: 7),
+                          NetworkPicture(
+                            url: club['logo_url'] as String?,
+                            width: 32,
+                            height: 32,
+                            borderRadius: 16,
+                          ),
+                        ],
+                      ),
+                    ),
+                    title: Text('${club['name'] ?? 'Club'}'),
+                    subtitle: Text(
+                      '${row['event_points'] ?? 0} event · '
+                      '${row['attendance_points'] ?? 0} attendance · '
+                      '${row['community_points'] ?? 0} community',
+                    ),
+                    trailing: Text(
+                      '${_total(row)} pts',
+                      style: const TextStyle(fontWeight: FontWeight.w700),
+                    ),
+                  ),
                 ),
-                title: Text('${club['name'] ?? 'Club'}'),
-                subtitle: Text('${club['category'] ?? ''}'),
-                trailing: Text(
-                  '$total pts',
-                  style: const TextStyle(fontWeight: FontWeight.w700),
-                ),
-              ),
-            );
-          },
+              );
+            }),
+          ],
         );
       },
     );
   }
+
+  num _total(Map<String, dynamic> row) =>
+      (row['engagement_points'] as num? ?? 0) +
+      (row['event_points'] as num? ?? 0) +
+      (row['attendance_points'] as num? ?? 0) +
+      (row['community_points'] as num? ?? 0);
 }
 
 class ClubDiscoverDetailScreen extends StatefulWidget {

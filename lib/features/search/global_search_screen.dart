@@ -10,7 +10,13 @@ import '../event/event_detail_screen.dart';
 import '../profile/public_profile_screen.dart';
 
 class GlobalSearchScreen extends StatefulWidget {
-  const GlobalSearchScreen({super.key});
+  const GlobalSearchScreen({
+    super.key,
+    this.embedded = false,
+    this.clubsOnly = false,
+  });
+  final bool embedded;
+  final bool clubsOnly;
 
   @override
   State<GlobalSearchScreen> createState() => _GlobalSearchScreenState();
@@ -42,7 +48,16 @@ class _GlobalSearchScreenState extends State<GlobalSearchScreen> {
   Object? searchError;
   String kind = 'all';
   String category = 'All';
+  String clubType = 'All';
+  bool recruitingOnly = false;
+  bool verifiedOnly = false;
   String sort = 'trending';
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.clubsOnly) kind = 'club';
+  }
 
   Future<_DiscoverData> loadDiscover() async {
     final values = await Future.wait([
@@ -103,92 +118,145 @@ class _GlobalSearchScreenState extends State<GlobalSearchScreen> {
   Future<void> showFilters() async {
     var nextKind = kind;
     var nextCategory = category;
+    var nextClubType = clubType;
+    var nextRecruitingOnly = recruitingOnly;
+    var nextVerifiedOnly = verifiedOnly;
     var nextSort = sort;
     final accepted = await showModalBottomSheet<bool>(
       context: context,
       isScrollControlled: true,
       builder: (context) => StatefulBuilder(
         builder: (context, setModalState) => SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Text('Filter discovery',
-                        style: Theme.of(context).textTheme.titleLarge),
-                    const Spacer(),
-                    IconButton(
-                      tooltip: 'Close',
-                      onPressed: () => Navigator.pop(context, false),
-                      icon: const Icon(Icons.close),
+          child: FractionallySizedBox(
+            heightFactor: .92,
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Text('Filter discovery',
+                          style: Theme.of(context).textTheme.titleLarge),
+                      const Spacer(),
+                      TextButton(
+                        onPressed: () => setModalState(() {
+                          nextKind = widget.clubsOnly ? 'club' : 'all';
+                          nextCategory = 'All';
+                          nextClubType = 'All';
+                          nextRecruitingOnly = false;
+                          nextVerifiedOnly = false;
+                          nextSort = 'trending';
+                        }),
+                        child: const Text('Clear'),
+                      ),
+                      IconButton(
+                        tooltip: 'Close',
+                        onPressed: () => Navigator.pop(context, false),
+                        icon: const Icon(Icons.close),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Text('Show', style: Theme.of(context).textTheme.titleMedium),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 8,
+                    children: (widget.clubsOnly
+                            ? const {'club': 'Clubs'}
+                            : const {
+                                'all': 'Everything',
+                                'club': 'Clubs',
+                                'event': 'Events',
+                                'user': 'People',
+                              })
+                        .entries
+                        .map((entry) => ChoiceChip(
+                              selected: nextKind == entry.key,
+                              label: Text(entry.value),
+                              onSelected: (_) =>
+                                  setModalState(() => nextKind = entry.key),
+                            ))
+                        .toList(),
+                  ),
+                  if (widget.clubsOnly || nextKind == 'club') ...[
+                    const SizedBox(height: 18),
+                    Text('Club type',
+                        style: Theme.of(context).textTheme.titleMedium),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 8,
+                      children: ['All', 'official', 'student', 'department']
+                          .map((value) => ChoiceChip(
+                                selected: nextClubType == value,
+                                label: Text(value == 'All'
+                                    ? 'All types'
+                                    : value[0].toUpperCase() +
+                                        value.substring(1)),
+                                onSelected: (_) =>
+                                    setModalState(() => nextClubType = value),
+                              ))
+                          .toList(),
+                    ),
+                    SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      value: nextRecruitingOnly,
+                      onChanged: (value) =>
+                          setModalState(() => nextRecruitingOnly = value),
+                      title: const Text('Recruiting now'),
+                    ),
+                    SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      value: nextVerifiedOnly,
+                      onChanged: (value) =>
+                          setModalState(() => nextVerifiedOnly = value),
+                      title: const Text('Verified clubs only'),
                     ),
                   ],
-                ),
-                const SizedBox(height: 12),
-                Text('Show', style: Theme.of(context).textTheme.titleMedium),
-                const SizedBox(height: 8),
-                Wrap(
-                  spacing: 8,
-                  children: const {
-                    'all': 'Everything',
-                    'club': 'Clubs',
-                    'event': 'Events',
-                    'user': 'People',
-                  }
-                      .entries
-                      .map((entry) => ChoiceChip(
-                            selected: nextKind == entry.key,
-                            label: Text(entry.value),
-                            onSelected: (_) =>
-                                setModalState(() => nextKind = entry.key),
-                          ))
-                      .toList(),
-                ),
-                const SizedBox(height: 18),
-                Text('Category',
-                    style: Theme.of(context).textTheme.titleMedium),
-                const SizedBox(height: 8),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 2,
-                  children: categories
-                      .map((value) => FilterChip(
-                            selected: nextCategory == value,
-                            label: Text(value),
-                            onSelected: (_) =>
-                                setModalState(() => nextCategory = value),
-                          ))
-                      .toList(),
-                ),
-                const SizedBox(height: 18),
-                DropdownButtonFormField<String>(
-                  initialValue: nextSort,
-                  decoration: const InputDecoration(labelText: 'Sort by'),
-                  items: const [
-                    DropdownMenuItem(
-                        value: 'trending', child: Text('Trending')),
-                    DropdownMenuItem(
-                        value: 'newest', child: Text('Newest first')),
-                    DropdownMenuItem(value: 'name', child: Text('Name A–Z')),
-                  ],
-                  onChanged: (value) {
-                    if (value != null) {
-                      setModalState(() => nextSort = value);
-                    }
-                  },
-                ),
-                const SizedBox(height: 20),
-                SizedBox(
-                  width: double.infinity,
-                  child: FilledButton(
-                    onPressed: () => Navigator.pop(context, true),
-                    child: const Text('Apply filters'),
+                  const SizedBox(height: 18),
+                  Text('Category',
+                      style: Theme.of(context).textTheme.titleMedium),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 2,
+                    children: categories
+                        .map((value) => FilterChip(
+                              selected: nextCategory == value,
+                              label: Text(value),
+                              onSelected: (_) =>
+                                  setModalState(() => nextCategory = value),
+                            ))
+                        .toList(),
                   ),
-                ),
-              ],
+                  const SizedBox(height: 18),
+                  DropdownButtonFormField<String>(
+                    initialValue: nextSort,
+                    decoration: const InputDecoration(labelText: 'Sort by'),
+                    items: const [
+                      DropdownMenuItem(
+                          value: 'trending', child: Text('Trending')),
+                      DropdownMenuItem(
+                          value: 'newest', child: Text('Newest first')),
+                      DropdownMenuItem(value: 'name', child: Text('Name A–Z')),
+                    ],
+                    onChanged: (value) {
+                      if (value != null) {
+                        setModalState(() => nextSort = value);
+                      }
+                    },
+                  ),
+                  const SizedBox(height: 20),
+                  SizedBox(
+                    width: double.infinity,
+                    child: FilledButton(
+                      onPressed: () => Navigator.pop(context, true),
+                      child: const Text('Apply filters'),
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
         ),
@@ -198,6 +266,9 @@ class _GlobalSearchScreenState extends State<GlobalSearchScreen> {
     setState(() {
       kind = nextKind;
       category = nextCategory;
+      clubType = nextClubType;
+      recruitingOnly = nextRecruitingOnly;
+      verifiedOnly = nextVerifiedOnly;
       sort = nextSort;
     });
     if (controller.text.trim().isNotEmpty) await search();
@@ -205,7 +276,9 @@ class _GlobalSearchScreenState extends State<GlobalSearchScreen> {
 
   Future<void> refreshDiscover() async {
     final next = loadDiscover();
-    setState(() => discover = next);
+    setState(() {
+      discover = next;
+    });
     await next;
   }
 
@@ -250,17 +323,20 @@ class _GlobalSearchScreenState extends State<GlobalSearchScreen> {
   Widget build(BuildContext context) {
     final searching = controller.text.trim().isNotEmpty;
     return Scaffold(
-      appBar: AppBar(
-        title: const Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('Discover'),
-            Text('Clubs, events and people',
-                style: TextStyle(fontSize: 12, fontWeight: FontWeight.w400)),
-          ],
-        ),
-        actions: const [NotificationAction()],
-      ),
+      appBar: widget.embedded
+          ? null
+          : AppBar(
+              title: const Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Discover'),
+                  Text('Clubs, events and people',
+                      style:
+                          TextStyle(fontSize: 12, fontWeight: FontWeight.w400)),
+                ],
+              ),
+              actions: const [NotificationAction()],
+            ),
       body: Column(
         children: [
           Padding(
@@ -289,8 +365,12 @@ class _GlobalSearchScreenState extends State<GlobalSearchScreen> {
                 ),
                 const SizedBox(width: 8),
                 Badge(
-                  isLabelVisible:
-                      kind != 'all' || category != 'All' || sort != 'trending',
+                  isLabelVisible: kind != (widget.clubsOnly ? 'club' : 'all') ||
+                      category != 'All' ||
+                      clubType != 'All' ||
+                      recruitingOnly ||
+                      verifiedOnly ||
+                      sort != 'trending',
                   child: IconButton.filledTonal(
                     tooltip: 'Filter and sort',
                     onPressed: showFilters,
@@ -306,7 +386,11 @@ class _GlobalSearchScreenState extends State<GlobalSearchScreen> {
               alignment: Alignment.centerLeft,
               child: Text(
                 '${kind == 'all' ? 'Everything' : '${kind[0].toUpperCase()}${kind.substring(1)}s'}'
-                ' · $category · ${sort == 'trending' ? 'Trending' : sort == 'newest' ? 'Newest' : 'Name'}',
+                ' · $category'
+                '${clubType == 'All' ? '' : ' · $clubType'}'
+                '${recruitingOnly ? ' · Recruiting' : ''}'
+                '${verifiedOnly ? ' · Verified' : ''}'
+                ' · ${sort == 'trending' ? 'Trending' : sort == 'newest' ? 'Newest' : 'Name'}',
                 style: Theme.of(context).textTheme.bodySmall,
               ),
             ),
@@ -325,8 +409,12 @@ class _GlobalSearchScreenState extends State<GlobalSearchScreen> {
                       if (snapshot.hasError) {
                         return AsyncErrorState(
                           error: snapshot.error,
-                          onRetry: () =>
-                              setState(() => discover = loadDiscover()),
+                          onRetry: () {
+                            final next = loadDiscover();
+                            setState(() {
+                              discover = next;
+                            });
+                          },
                         );
                       }
                       if (!snapshot.hasData) {
@@ -335,6 +423,9 @@ class _GlobalSearchScreenState extends State<GlobalSearchScreen> {
                       return _DiscoverLanding(
                         data: snapshot.data!,
                         category: category,
+                        clubType: clubType,
+                        recruitingOnly: recruitingOnly,
+                        verifiedOnly: verifiedOnly,
                         kind: kind,
                         sort: sort,
                         onRefresh: refreshDiscover,
@@ -401,11 +492,17 @@ class _DiscoverLanding extends StatelessWidget {
   const _DiscoverLanding(
       {required this.data,
       required this.category,
+      required this.clubType,
+      required this.recruitingOnly,
+      required this.verifiedOnly,
       required this.kind,
       required this.sort,
       required this.onRefresh});
   final _DiscoverData data;
   final String category;
+  final String clubType;
+  final bool recruitingOnly;
+  final bool verifiedOnly;
   final String kind;
   final String sort;
   final Future<void> Function() onRefresh;
@@ -424,6 +521,10 @@ class _DiscoverLanding extends StatelessWidget {
         : data.clubs
             .where((club) => '${club['category']}' == category)
             .toList());
+    clubs.removeWhere((club) =>
+        (clubType != 'All' && '${club['club_type']}' != clubType) ||
+        (recruitingOnly && club['recruitment_open'] != true) ||
+        (verifiedOnly && club['verified'] != true));
     final events = List<Map<String, dynamic>>.from(category == 'All'
         ? data.events
         : data.events
@@ -445,66 +546,99 @@ class _DiscoverLanding extends StatelessWidget {
         padding: const EdgeInsets.fromLTRB(16, 12, 16, 104),
         children: [
           if (kind != 'event') ...[
-            const SectionHeader('Popular clubs'),
+            SectionHeader('${clubs.length} clubs'),
             const SizedBox(height: 10),
             if (clubs.isEmpty)
-              const Text('No clubs in this category yet.')
+              const EmptyState(
+                icon: Icons.search_off,
+                title: 'No clubs match these filters',
+                message: 'Clear or adjust the filters to see more clubs.',
+              )
             else
-              SizedBox(
-                height: 190,
-                child: ListView.separated(
-                  scrollDirection: Axis.horizontal,
-                  itemCount: clubs.length,
-                  separatorBuilder: (_, __) => const SizedBox(width: 10),
-                  itemBuilder: (context, index) {
-                    final club = clubs[index];
-                    return SizedBox(
-                      width: 176,
-                      child: Card(
-                        clipBehavior: Clip.antiAlias,
-                        child: InkWell(
-                          onTap: () => Navigator.push(
-                            context,
-                            MaterialPageRoute<void>(
-                              builder: (_) =>
-                                  ClubDiscoverDetailScreen(club: club),
-                            ),
-                          ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              NetworkPicture(
-                                url: club['banner_url'] as String?,
-                                width: double.infinity,
-                                height: 100,
-                                borderRadius: 0,
-                              ),
-                              Padding(
-                                padding: const EdgeInsets.all(10),
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text('${club['name']}',
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                        style: Theme.of(context)
-                                            .textTheme
-                                            .titleMedium),
-                                    Text('${club['category']}',
-                                        style: Theme.of(context)
-                                            .textTheme
-                                            .bodySmall),
-                                  ],
-                                ),
-                              ),
-                            ],
+              ...clubs.map((club) => Padding(
+                    padding: const EdgeInsets.only(bottom: 14),
+                    child: Card(
+                      clipBehavior: Clip.antiAlias,
+                      child: InkWell(
+                        onTap: () => Navigator.push(
+                          context,
+                          MaterialPageRoute<void>(
+                            builder: (_) =>
+                                ClubDiscoverDetailScreen(club: club),
                           ),
                         ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            NetworkPicture(
+                              url: club['banner_url'] as String?,
+                              width: double.infinity,
+                              height: 170,
+                              borderRadius: 0,
+                            ),
+                            Padding(
+                              padding: const EdgeInsets.all(16),
+                              child: Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  NetworkPicture(
+                                    url: club['logo_url'] as String?,
+                                    width: 58,
+                                    height: 58,
+                                    borderRadius: 16,
+                                  ),
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Row(
+                                          children: [
+                                            Expanded(
+                                              child: Text('${club['name']}',
+                                                  style: Theme.of(context)
+                                                      .textTheme
+                                                      .titleMedium),
+                                            ),
+                                            if (club['verified'] == true)
+                                              Icon(Icons.verified,
+                                                  size: 19,
+                                                  color: Theme.of(context)
+                                                      .colorScheme
+                                                      .primary),
+                                          ],
+                                        ),
+                                        const SizedBox(height: 4),
+                                        Text(
+                                          '${club['category']} · ${club['club_type'] ?? 'Student club'}',
+                                          style: Theme.of(context)
+                                              .textTheme
+                                              .bodySmall,
+                                        ),
+                                        if ('${club['description'] ?? ''}'
+                                            .isNotEmpty) ...[
+                                          const SizedBox(height: 8),
+                                          Text('${club['description']}',
+                                              maxLines: 2,
+                                              overflow: TextOverflow.ellipsis),
+                                        ],
+                                        if (club['recruitment_open'] ==
+                                            true) ...[
+                                          const SizedBox(height: 8),
+                                          const StatusChip('Recruiting'),
+                                        ],
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
-                    );
-                  },
-                ),
-              ),
+                    ),
+                  )),
             const SizedBox(height: 24),
           ],
           if (kind != 'club') ...[

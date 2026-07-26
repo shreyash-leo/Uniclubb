@@ -14,13 +14,32 @@ class MessagesScreen extends StatefulWidget {
 
 class _MessagesScreenState extends State<MessagesScreen> {
   final repo = UniClubRepository();
+  final filterController = TextEditingController();
+  String filter = '';
 
-  Future<List<Map<String, dynamic>>> conversations() async =>
-      List<Map<String, dynamic>>.from(await repo.client
-          .from('conversation_members')
-          .select('*, conversations(*)')
-          .eq('user_id', repo.userId)
-          .order('joined_at', ascending: false));
+  Future<List<Map<String, dynamic>>> conversations() async {
+    final rows = List<Map<String, dynamic>>.from(await repo.client
+        .from('conversation_members')
+        .select(
+          '*, conversations(*, '
+          'conversation_members!conversation_members_conversation_id_fkey('
+          'user_id, profiles!conversation_members_user_id_fkey('
+          'full_name,avatar_url)))',
+        )
+        .eq('user_id', repo.userId)
+        .order('joined_at', ascending: false));
+    final allowedDirectUsers = await repo.sharedClubMemberIds();
+    return rows.where((row) {
+      final conversation = row['conversations'] as Map? ?? const {};
+      if (conversation['kind'] != 'direct') return true;
+      final members = conversation['conversation_members'] as List? ?? const [];
+      return members.any((value) {
+        final member = value as Map? ?? const {};
+        final id = '${member['user_id']}';
+        return id != repo.userId && allowedDirectUsers.contains(id);
+      });
+    }).toList(growable: false);
+  }
 
   Future<void> startDirect() async {
     final target = await showDialog<Map<String, dynamic>>(
@@ -57,60 +76,171 @@ class _MessagesScreenState extends State<MessagesScreen> {
         if (!snapshot.hasData) {
           return const Center(child: CircularProgressIndicator());
         }
-        if (snapshot.data!.isEmpty) {
-          return const EmptyState(
-              icon: Icons.chat_bubble_outline,
-              title: 'No conversations yet',
-              message: 'Start a conversation with someone from your campus.');
-        }
-        return ListView.builder(
-          padding: const EdgeInsets.fromLTRB(12, 12, 12, 96),
-          itemCount: snapshot.data!.length,
-          itemBuilder: (context, index) {
-            final conversation = Map<String, dynamic>.from(
-                snapshot.data![index]['conversations'] as Map);
-            return Card(
-              margin: const EdgeInsets.only(bottom: 8),
-              child: ListTile(
-                leading: CircleAvatar(
-                  child: Icon(switch (conversation['kind']) {
-                    'club' => Icons.groups_outlined,
-                    'event' => Icons.event_outlined,
-                    _ => Icons.person_outline,
-                  }),
-                ),
-                title: Text(
-                    '${conversation['title'] ?? _kind(conversation['kind'])}'),
-                subtitle: Text(_kind(conversation['kind'])),
-                trailing: const Icon(Icons.chevron_right),
-                onTap: () => Navigator.push(
-                  context,
-                  MaterialPageRoute<void>(
-                    builder: (_) => ConversationScreen(
-                      conversationId: '${conversation['id']}',
-                      title:
-                          '${conversation['title'] ?? _kind(conversation['kind'])}',
-                    ),
-                  ),
-                ),
-              ),
-            );
-          },
+        return TabBarView(
+          children: [
+            _conversationList(
+              snapshot.data!,
+              kind: 'direct',
+              emptyTitle: 'No direct messages',
+              emptyMessage:
+                  'Message a member from one of your clubs to get started.',
+            ),
+            _conversationList(
+              snapshot.data!,
+              kind: 'club',
+              emptyTitle: 'No club chats',
+              emptyMessage: 'Club chats appear when you become a member.',
+            ),
+          ],
         );
       },
     );
-    return Scaffold(
-      appBar: widget.embedded ? null : AppBar(title: const Text('Messages')),
-      floatingActionButton: FloatingActionButton(
-          heroTag: 'messages-compose',
-          onPressed: startDirect,
-          child: const Icon(Icons.edit_outlined)),
-      body: content,
+    final tabs = TabBar(
+      dividerColor: Colors.transparent,
+      indicatorSize: TabBarIndicatorSize.tab,
+      indicator: BoxDecoration(
+        color: Theme.of(context).colorScheme.primaryContainer,
+        borderRadius: BorderRadius.circular(24),
+      ),
+      labelColor: Theme.of(context).colorScheme.onPrimaryContainer,
+      unselectedLabelColor: Theme.of(context).colorScheme.onSurfaceVariant,
+      tabs: const [
+        Tab(text: 'Direct messages'),
+        Tab(text: 'Club chats'),
+      ],
+    );
+    final search = Padding(
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
+      child: TextField(
+        controller: filterController,
+        onChanged: (value) => setState(() => filter = value.trim()),
+        decoration: InputDecoration(
+          hintText: 'Filter conversations',
+          prefixIcon: const Icon(Icons.search),
+          suffixIcon: filter.isEmpty
+              ? const Icon(Icons.filter_list)
+              : IconButton(
+                  tooltip: 'Clear filter',
+                  onPressed: () {
+                    filterController.clear();
+                    setState(() => filter = '');
+                  },
+                  icon: const Icon(Icons.close),
+                ),
+        ),
+      ),
+    );
+    return DefaultTabController(
+      length: 2,
+      child: Scaffold(
+        appBar: widget.embedded
+            ? null
+            : AppBar(title: const Text('Messages'), bottom: tabs),
+        floatingActionButton: FloatingActionButton(
+            heroTag: 'messages-compose',
+            onPressed: startDirect,
+            child: const Icon(Icons.edit_outlined)),
+        body: widget.embedded
+            ? Column(
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+                    child: tabs,
+                  ),
+                  search,
+                  Expanded(child: content),
+                ],
+              )
+            : Column(
+                children: [
+                  search,
+                  Expanded(child: content),
+                ],
+              ),
+      ),
+    );
+  }
+
+  Widget _conversationList(
+    List<Map<String, dynamic>> rows, {
+    required String kind,
+    required String emptyTitle,
+    required String emptyMessage,
+  }) {
+    final filtered = rows.where((row) {
+      final conversation = row['conversations'] as Map? ?? const {};
+      if (conversation['kind'] != kind) return false;
+      final peer = _directPeer(conversation);
+      final title = kind == 'direct'
+          ? '${peer?['full_name'] ?? 'Club member'}'
+          : '${conversation['title'] ?? ''}';
+      return filter.isEmpty ||
+          title.toLowerCase().contains(filter.toLowerCase());
+    }).toList(growable: false);
+    if (filtered.isEmpty) {
+      return EmptyState(
+        icon: kind == 'direct' ? Icons.person_outline : Icons.groups_outlined,
+        title: emptyTitle,
+        message: emptyMessage,
+      );
+    }
+    return ListView.builder(
+      padding: const EdgeInsets.fromLTRB(12, 12, 12, 96),
+      itemCount: filtered.length,
+      itemBuilder: (context, index) {
+        final conversation =
+            Map<String, dynamic>.from(filtered[index]['conversations'] as Map);
+        final peer = _directPeer(conversation);
+        final title = kind == 'direct'
+            ? '${peer?['full_name'] ?? 'Club member'}'
+            : '${conversation['title'] ?? _kind(conversation['kind'])}';
+        return Card(
+          margin: const EdgeInsets.only(bottom: 8),
+          child: ListTile(
+            leading: kind == 'direct'
+                ? NetworkPicture(
+                    url: peer?['avatar_url'] as String?,
+                    width: 44,
+                    height: 44,
+                    borderRadius: 22,
+                  )
+                : const CircleAvatar(child: Icon(Icons.groups_outlined)),
+            title: Text(title),
+            subtitle: Text(kind == 'club' ? 'Club chat' : 'Direct message'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute<void>(
+                builder: (_) => ConversationScreen(
+                  conversationId: '${conversation['id']}',
+                  title: title,
+                ),
+              ),
+            ),
+          ),
+        );
+      },
     );
   }
 
   static String _kind(dynamic value) =>
       '${value ?? 'conversation'}'.replaceAll('_', ' ');
+
+  Map<String, dynamic>? _directPeer(Map<dynamic, dynamic> conversation) {
+    final members = conversation['conversation_members'] as List? ?? const [];
+    for (final value in members) {
+      final member = value as Map? ?? const {};
+      if ('${member['user_id']}' == repo.userId) continue;
+      return Map<String, dynamic>.from(member['profiles'] as Map? ?? {});
+    }
+    return null;
+  }
+
+  @override
+  void dispose() {
+    filterController.dispose();
+    super.dispose();
+  }
 }
 
 class _NewMessageDialog extends StatefulWidget {
@@ -136,7 +266,7 @@ class _NewMessageDialogState extends State<_NewMessageDialog> {
     }
     setState(() => loading = true);
     try {
-      final rows = await widget.repo.globalSearch(value);
+      final rows = await widget.repo.clubPeopleSearch(value);
       if (!mounted || currentRequest != request) return;
       setState(() => results =
           rows.where((row) => row['kind'] == 'user').toList(growable: false));
@@ -217,7 +347,20 @@ class ConversationScreen extends StatefulWidget {
 class _ConversationScreenState extends State<ConversationScreen> {
   final repo = UniClubRepository();
   final controller = TextEditingController();
+  final scrollController = ScrollController();
+  late final Stream<List<Map<String, dynamic>>> messageStream;
   bool sending = false;
+  int visibleMessages = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    messageStream = repo.client
+        .from('messages')
+        .stream(primaryKey: ['id'])
+        .eq('conversation_id', widget.conversationId)
+        .order('created_at');
+  }
 
   Future<void> send() async {
     final body = controller.text.trim();
@@ -225,11 +368,10 @@ class _ConversationScreenState extends State<ConversationScreen> {
     setState(() => sending = true);
     controller.clear();
     try {
-      await repo.client.from('messages').insert({
-        'conversation_id': widget.conversationId,
-        'sender_id': repo.userId,
-        'body': body,
-      });
+      await repo.sendMessage(
+        conversationId: widget.conversationId,
+        body: body,
+      );
     } catch (error) {
       controller.text = body;
       if (mounted) showErrorSnackBar(context, error);
@@ -246,11 +388,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
         children: [
           Expanded(
             child: StreamBuilder<List<Map<String, dynamic>>>(
-              stream: repo.client
-                  .from('messages')
-                  .stream(primaryKey: ['id'])
-                  .eq('conversation_id', widget.conversationId)
-                  .order('created_at'),
+              stream: messageStream,
               builder: (context, snapshot) {
                 if (snapshot.hasError) {
                   return AsyncErrorState(error: snapshot.error);
@@ -258,11 +396,26 @@ class _ConversationScreenState extends State<ConversationScreen> {
                 if (!snapshot.hasData) {
                   return const Center(child: CircularProgressIndicator());
                 }
+                final messages = uniqueMessagesById(snapshot.data!);
+                if (messages.length != visibleMessages) {
+                  visibleMessages = messages.length;
+                  WidgetsBinding.instance.addPostFrameCallback((_) {
+                    if (!mounted || !scrollController.hasClients) return;
+                    scrollController.animateTo(
+                      scrollController.position.maxScrollExtent,
+                      duration: const Duration(milliseconds: 220),
+                      curve: Curves.easeOut,
+                    );
+                  });
+                }
                 return ListView.builder(
+                  controller: scrollController,
+                  keyboardDismissBehavior:
+                      ScrollViewKeyboardDismissBehavior.onDrag,
                   padding: const EdgeInsets.all(14),
-                  itemCount: snapshot.data!.length,
+                  itemCount: messages.length,
                   itemBuilder: (_, index) {
-                    final row = snapshot.data![index];
+                    final row = messages[index];
                     final mine = row['sender_id'] == repo.userId;
                     return Align(
                       alignment:
@@ -279,7 +432,17 @@ class _ConversationScreenState extends State<ConversationScreen> {
                                   .surfaceContainerHighest,
                           borderRadius: BorderRadius.circular(16),
                         ),
-                        child: Text('${row['body'] ?? ''}'),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.end,
+                          children: [
+                            Text('${row['body'] ?? ''}'),
+                            const SizedBox(height: 3),
+                            Text(
+                              _messageTime(row['created_at']),
+                              style: Theme.of(context).textTheme.labelSmall,
+                            ),
+                          ],
+                        ),
                       ),
                     );
                   },
@@ -296,6 +459,9 @@ class _ConversationScreenState extends State<ConversationScreen> {
                   Expanded(
                       child: TextField(
                     controller: controller,
+                    minLines: 1,
+                    maxLines: 5,
+                    textCapitalization: TextCapitalization.sentences,
                     onSubmitted: (_) => send(),
                     decoration:
                         const InputDecoration(hintText: 'Write a message…'),
@@ -321,6 +487,30 @@ class _ConversationScreenState extends State<ConversationScreen> {
   @override
   void dispose() {
     controller.dispose();
+    scrollController.dispose();
     super.dispose();
   }
+}
+
+String _messageTime(dynamic value) {
+  final date = DateTime.tryParse('$value')?.toLocal();
+  if (date == null) return '';
+  final hour = date.hour % 12 == 0 ? 12 : date.hour % 12;
+  return '$hour:${date.minute.toString().padLeft(2, '0')} '
+      '${date.hour >= 12 ? 'PM' : 'AM'}';
+}
+
+List<Map<String, dynamic>> uniqueMessagesById(
+  List<Map<String, dynamic>> rows,
+) {
+  final byId = <String, Map<String, dynamic>>{};
+  for (final row in rows) {
+    final id = row['id'];
+    if (id == null) continue;
+    byId['$id'] = row;
+  }
+  final result = byId.values.toList();
+  result.sort((a, b) =>
+      '${a['created_at'] ?? ''}'.compareTo('${b['created_at'] ?? ''}'));
+  return result;
 }

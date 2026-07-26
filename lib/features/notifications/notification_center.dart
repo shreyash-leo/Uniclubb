@@ -2,6 +2,9 @@ import 'package:flutter/material.dart';
 
 import '../../core/supabase/uniclub_repository.dart';
 import '../../shared/widgets.dart';
+import '../club/clubs_hub_screen.dart';
+import '../event/event_detail_screen.dart';
+import '../messaging/messages_screen.dart';
 
 class NotificationCenter extends StatefulWidget {
   const NotificationCenter({super.key});
@@ -28,6 +31,57 @@ class _NotificationCenterState extends State<NotificationCenter> {
   Future<void> markOne(String id) async {
     try {
       await repo.markNotificationRead(id);
+    } catch (error) {
+      if (mounted) showErrorSnackBar(context, error);
+    }
+  }
+
+  Future<void> openNotification(Map<String, dynamic> row) async {
+    await markOne('${row['id']}');
+    if (!mounted) return;
+    final data = Map<String, dynamic>.from(row['data'] as Map? ?? {});
+    try {
+      if (data['conversation_id'] != null) {
+        final conversation = await repo.client
+            .from('conversations')
+            .select('id,title,kind')
+            .eq('id', data['conversation_id'])
+            .single();
+        if (!mounted) return;
+        await Navigator.push(
+          context,
+          MaterialPageRoute<void>(
+            builder: (_) => ConversationScreen(
+              conversationId: '${conversation['id']}',
+              title: '${conversation['title'] ?? 'Conversation'}',
+            ),
+          ),
+        );
+      } else if (data['event_id'] != null) {
+        final event = await repo.client
+            .from('events')
+            .select()
+            .eq('id', data['event_id'])
+            .single();
+        if (!mounted) return;
+        await Navigator.push(
+          context,
+          MaterialPageRoute<void>(
+              builder: (_) => EventDetailScreen(event: event)),
+        );
+      } else if (data['club_id'] != null) {
+        final club = await repo.client
+            .from('clubs')
+            .select('*, colleges(name, short_name)')
+            .eq('id', data['club_id'])
+            .single();
+        if (!mounted) return;
+        await Navigator.push(
+          context,
+          MaterialPageRoute<void>(
+              builder: (_) => ClubDiscoverDetailScreen(club: club)),
+        );
+      }
     } catch (error) {
       if (mounted) showErrorSnackBar(context, error);
     }
@@ -105,9 +159,7 @@ class _NotificationCenterState extends State<NotificationCenter> {
                   subtitle:
                       Text('${row['body']}\n${formatDate(row['created_at'])}'),
                   isThreeLine: true,
-                  onTap: () async {
-                    await markOne('${row['id']}');
-                  },
+                  onTap: () => openNotification(row),
                 ),
               );
             },

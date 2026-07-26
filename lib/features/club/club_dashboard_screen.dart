@@ -1,5 +1,5 @@
-import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 
 import '../../core/supabase/uniclub_repository.dart';
 import '../../shared/notification_action.dart';
@@ -23,75 +23,24 @@ class ClubDashboardScreen extends StatelessWidget {
   bool can(String permission) =>
       permissions.contains('all') || permissions.contains(permission);
 
-  Future<void> deleteClub(BuildContext context) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Delete club?'),
-        content: Text(
-            '${club['name']} and all its events, stories, tasks and memberships will be permanently deleted.'),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(context, false),
-              child: const Text('Cancel')),
-          FilledButton(
-              onPressed: () => Navigator.pop(context, true),
-              child: const Text('Delete club')),
-        ],
-      ),
-    );
-    if (confirmed != true || !context.mounted) return;
-    try {
-      await UniClubRepository()
-          .client
-          .from('clubs')
-          .delete()
-          .eq('id', club['id']);
-      if (context.mounted) Navigator.pop(context);
-    } catch (error) {
-      if (context.mounted) showErrorSnackBar(context, error);
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     return DefaultTabController(
-      length: 5,
+      length: 7,
       child: Scaffold(
         appBar: AppBar(
           title: Text('${club['name']}'),
-          actions: [
-            if (can('manage_members'))
-              IconButton(
-                tooltip: 'Members and roles',
-                icon: const Icon(Icons.admin_panel_settings_outlined),
-                onPressed: () => Navigator.push(
-                  context,
-                  MaterialPageRoute<void>(
-                    builder: (_) => RoleManagementScreen(club: club),
-                  ),
-                ),
-              ),
-            if (can('all'))
-              PopupMenuButton<String>(
-                tooltip: 'Club settings',
-                onSelected: (value) {
-                  if (value == 'delete') deleteClub(context);
-                },
-                itemBuilder: (_) => const [
-                  PopupMenuItem(value: 'delete', child: Text('Delete club')),
-                ],
-              ),
-            const NotificationAction(),
-          ],
+          actions: const [NotificationAction()],
           bottom: const TabBar(
             isScrollable: true,
             tabs: [
               Tab(text: 'Dashboard'),
+              Tab(text: 'Announcements'),
               Tab(text: 'Events'),
               Tab(text: 'Members'),
               Tab(text: 'Tasks'),
               Tab(text: 'Finance'),
+              Tab(text: 'Settings'),
             ],
           ),
         ),
@@ -99,8 +48,11 @@ class ClubDashboardScreen extends StatelessWidget {
           children: [
             _Overview(
               club: club,
-              canAnnounce: can('manage_announcements'),
               canManageMembers: can('manage_members'),
+            ),
+            ClubAnnouncementsView(
+              club: club,
+              canManage: can('manage_announcements'),
             ),
             EventManagementScreen(club: club, canManage: can('manage_events')),
             RoleManagementScreen(club: club),
@@ -109,6 +61,10 @@ class ClubDashboardScreen extends StatelessWidget {
               club: club,
               canManage: can('manage_finance'),
               canApprove: can('approve_expenses'),
+            ),
+            ClubSettingsView(
+              club: club,
+              canManage: can('all'),
             ),
           ],
         ),
@@ -530,12 +486,8 @@ class _AddClubMemberDialogState extends State<_AddClubMemberDialog> {
 }
 
 class _Overview extends StatefulWidget {
-  const _Overview(
-      {required this.club,
-      required this.canAnnounce,
-      required this.canManageMembers});
+  const _Overview({required this.club, required this.canManageMembers});
   final Map<String, dynamic> club;
-  final bool canAnnounce;
   final bool canManageMembers;
 
   @override
@@ -595,140 +547,6 @@ class _OverviewState extends State<_Overview> {
       'Events': values[1].length,
       'Followers': values[2].length,
     };
-  }
-
-  Future<void> composeAnnouncement() async {
-    final title = TextEditingController();
-    final body = TextEditingController();
-    final poll = TextEditingController();
-    PlatformFile? attachment;
-    bool pinned = false;
-    DateTime? scheduled;
-    final publish = await showDialog<bool>(
-      context: context,
-      builder: (context) => StatefulBuilder(
-        builder: (context, modalSetState) => AlertDialog(
-          title: const Text('New announcement'),
-          content: SizedBox(
-            width: 520,
-            child: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  TextField(
-                      controller: title,
-                      decoration: const InputDecoration(labelText: 'Headline')),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: body,
-                    minLines: 4,
-                    maxLines: 8,
-                    decoration: const InputDecoration(labelText: 'Message'),
-                  ),
-                  const SizedBox(height: 12),
-                  OutlinedButton.icon(
-                    onPressed: () async {
-                      final result = await FilePicker.pickFiles(
-                        type: FileType.custom,
-                        allowedExtensions: const [
-                          'jpg',
-                          'jpeg',
-                          'png',
-                          'webp',
-                          'pdf'
-                        ],
-                        withData: true,
-                      );
-                      modalSetState(() => attachment = result?.files.single);
-                    },
-                    icon: const Icon(Icons.attach_file),
-                    label: Text(attachment?.name ?? 'Attach image or PDF'),
-                  ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: poll,
-                    decoration: const InputDecoration(
-                      labelText: 'Poll options (comma separated, optional)',
-                    ),
-                  ),
-                  SwitchListTile(
-                    value: pinned,
-                    onChanged: (value) => modalSetState(() => pinned = value),
-                    title: const Text('Pin announcement'),
-                  ),
-                  OutlinedButton.icon(
-                    onPressed: () async {
-                      final date = await showDatePicker(
-                        context: context,
-                        firstDate: DateTime.now(),
-                        lastDate: DateTime.now().add(const Duration(days: 365)),
-                      );
-                      modalSetState(() => scheduled = date);
-                    },
-                    icon: const Icon(Icons.schedule),
-                    label: Text(scheduled == null
-                        ? 'Publish now'
-                        : 'Scheduled ${formatDate(scheduled, time: false)}'),
-                  ),
-                ],
-              ),
-            ),
-          ),
-          actions: [
-            TextButton(
-                onPressed: () => Navigator.pop(context, false),
-                child: const Text('Cancel')),
-            FilledButton(
-                onPressed: () => Navigator.pop(context, true),
-                child: const Text('Save')),
-          ],
-        ),
-      ),
-    );
-    if (publish == true &&
-        title.text.trim().isNotEmpty &&
-        body.text.trim().isNotEmpty) {
-      final options = poll.text
-          .split(',')
-          .map((item) => item.trim())
-          .where((item) => item.isNotEmpty)
-          .toList();
-      final attachments = <Map<String, dynamic>>[];
-      if (attachment?.bytes != null) {
-        final url = await repo.upload(
-          bucket: 'club-media',
-          bytes: attachment!.bytes!,
-          extension: attachment!.extension ?? 'bin',
-          folder: '${widget.club['id']}/announcements',
-        );
-        attachments.add({
-          'name': attachment!.name,
-          'url': url,
-          'type': attachment!.extension == 'pdf' ? 'pdf' : 'image',
-        });
-      }
-      await repo.client.from('announcements').insert({
-        'club_id': widget.club['id'],
-        'author_id': repo.userId,
-        'title': title.text.trim(),
-        'body': body.text.trim(),
-        'pinned': pinned,
-        'poll': options.isEmpty ? null : {'options': options},
-        'attachments': attachments,
-        'scheduled_at': scheduled?.toIso8601String(),
-        'published_at':
-            scheduled == null ? DateTime.now().toIso8601String() : null,
-      });
-    }
-    await disposeTextControllersAfterRoute([title, body, poll]);
-  }
-
-  Future<void> deleteAnnouncement(String id) async {
-    try {
-      await repo.client.from('announcements').delete().eq('id', id);
-    } catch (error) {
-      if (mounted) showErrorSnackBar(context, error);
-    }
   }
 
   @override
@@ -829,58 +647,391 @@ class _OverviewState extends State<_Overview> {
           ),
           const SizedBox(height: 24),
         ],
-        SectionHeader('Announcements',
-            action: widget.canAnnounce ? 'Create' : null,
-            onTap: widget.canAnnounce ? composeAnnouncement : null),
-        const SizedBox(height: 10),
-        StreamBuilder<List<Map<String, dynamic>>>(
-          stream: repo.client
-              .from('announcements')
-              .stream(primaryKey: ['id'])
-              .eq('club_id', '${widget.club['id']}')
-              .order('created_at', ascending: false),
-          builder: (context, snapshot) {
-            if (snapshot.hasError) {
-              return AsyncErrorState(error: snapshot.error);
-            }
-            if (!snapshot.hasData) {
-              return const SizedBox(height: 100, child: SkeletonList(count: 1));
-            }
-            if (snapshot.data!.isEmpty) {
-              return const Text('No announcements yet.');
-            }
-            return Column(
-              children: snapshot.data!
-                  .map((row) => Padding(
-                        padding: const EdgeInsets.only(bottom: 10),
-                        child: Card(
-                          child: ListTile(
-                            leading: Icon(row['pinned'] == true
-                                ? Icons.push_pin
-                                : Icons.campaign_outlined),
-                            title: Text('${row['title']}'),
-                            subtitle: Text(
-                              '${row['body']}\n${formatDate(row['published_at'] ?? row['scheduled_at'] ?? row['created_at'])}',
-                              maxLines: 4,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                            trailing: widget.canAnnounce
-                                ? IconButton(
-                                    tooltip: 'Delete announcement',
-                                    onPressed: () =>
-                                        deleteAnnouncement('${row['id']}'),
-                                    icon: const Icon(Icons.delete_outline),
-                                  )
-                                : null,
-                            isThreeLine: true,
+      ],
+    );
+  }
+}
+
+class ClubAnnouncementsView extends StatefulWidget {
+  const ClubAnnouncementsView({
+    super.key,
+    required this.club,
+    required this.canManage,
+  });
+  final Map<String, dynamic> club;
+  final bool canManage;
+
+  @override
+  State<ClubAnnouncementsView> createState() => _ClubAnnouncementsViewState();
+}
+
+class _ClubAnnouncementsViewState extends State<ClubAnnouncementsView> {
+  final repo = UniClubRepository();
+  final hiddenIds = <String>{};
+
+  Future<void> compose() async {
+    final title = TextEditingController();
+    final message = TextEditingController();
+    DateTime? scheduledAt;
+    final accepted = await showDialog<bool>(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setModalState) => AlertDialog(
+          title: const Text('New announcement'),
+          content: SizedBox(
+            width: 500,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextField(
+                    controller: title,
+                    autofocus: true,
+                    textCapitalization: TextCapitalization.sentences,
+                    decoration: const InputDecoration(labelText: 'Title'),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: message,
+                    minLines: 5,
+                    maxLines: 10,
+                    textCapitalization: TextCapitalization.sentences,
+                    decoration: const InputDecoration(labelText: 'Message'),
+                  ),
+                  const SizedBox(height: 12),
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: const Icon(Icons.schedule),
+                    title: Text(scheduledAt == null
+                        ? 'Send now'
+                        : formatDate(scheduledAt)),
+                    subtitle: const Text('Tap to schedule for later'),
+                    trailing: scheduledAt == null
+                        ? const Icon(Icons.chevron_right)
+                        : IconButton(
+                            onPressed: () =>
+                                setModalState(() => scheduledAt = null),
+                            icon: const Icon(Icons.close),
                           ),
-                        ),
-                      ))
-                  .toList(),
+                    onTap: () async {
+                      final date = await showDatePicker(
+                        context: context,
+                        firstDate: DateTime.now(),
+                        lastDate: DateTime.now().add(const Duration(days: 365)),
+                      );
+                      if (date == null || !context.mounted) return;
+                      final time = await showTimePicker(
+                        context: context,
+                        initialTime: TimeOfDay.now(),
+                      );
+                      if (time == null) return;
+                      setModalState(() => scheduledAt = DateTime(
+                            date.year,
+                            date.month,
+                            date.day,
+                            time.hour,
+                            time.minute,
+                          ));
+                    },
+                  ),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: Text(scheduledAt == null ? 'Send' : 'Schedule'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (accepted == true &&
+        title.text.trim().isNotEmpty &&
+        message.text.trim().isNotEmpty) {
+      try {
+        await repo.client.from('announcements').insert({
+          'club_id': widget.club['id'],
+          'author_id': repo.userId,
+          'title': title.text.trim(),
+          'body': message.text.trim(),
+          'attachments': const [],
+          'poll': null,
+          'pinned': false,
+          'scheduled_at': scheduledAt?.toUtc().toIso8601String(),
+          'published_at': scheduledAt == null
+              ? DateTime.now().toUtc().toIso8601String()
+              : null,
+        });
+      } catch (error) {
+        if (mounted) showErrorSnackBar(context, error);
+      }
+    }
+    await disposeTextControllersAfterRoute([title, message]);
+  }
+
+  Future<void> deleteAnnouncement(String id) async {
+    setState(() => hiddenIds.add(id));
+    try {
+      await repo.client.from('announcements').delete().eq('id', id);
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => hiddenIds.remove(id));
+      showErrorSnackBar(context, error);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      floatingActionButton: widget.canManage
+          ? FloatingActionButton.extended(
+              heroTag: 'club-announcement-create',
+              onPressed: compose,
+              icon: const Icon(Icons.campaign_outlined),
+              label: const Text('Announcement'),
+            )
+          : null,
+      body: StreamBuilder<List<Map<String, dynamic>>>(
+        stream: repo.client
+            .from('announcements')
+            .stream(primaryKey: ['id'])
+            .eq('club_id', '${widget.club['id']}')
+            .order('created_at', ascending: false),
+        builder: (context, snapshot) {
+          if (snapshot.hasError) {
+            return AsyncErrorState(error: snapshot.error);
+          }
+          if (!snapshot.hasData) return const SkeletonList();
+          final rows = snapshot.data!
+              .where((row) => !hiddenIds.contains('${row['id']}'))
+              .toList(growable: false);
+          if (rows.isEmpty) {
+            return const EmptyState(
+              icon: Icons.campaign_outlined,
+              title: 'No announcements yet',
+              message: 'Official club updates will appear here.',
             );
+          }
+          return ListView.separated(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 104),
+            itemCount: rows.length,
+            separatorBuilder: (_, __) => const SizedBox(height: 10),
+            itemBuilder: (context, index) {
+              final row = rows[index];
+              final scheduled = row['published_at'] == null;
+              return Card(
+                child: ListTile(
+                  leading: Icon(
+                      scheduled ? Icons.schedule : Icons.campaign_outlined),
+                  title: Text('${row['title']}'),
+                  subtitle: Text(
+                    '${row['body']}\n${scheduled ? 'Scheduled' : 'Published'} · '
+                    '${formatDate(row['published_at'] ?? row['scheduled_at'] ?? row['created_at'])}',
+                    maxLines: 4,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  isThreeLine: true,
+                  trailing: widget.canManage
+                      ? IconButton(
+                          tooltip: 'Delete announcement',
+                          onPressed: () => deleteAnnouncement('${row['id']}'),
+                          icon: const Icon(Icons.delete_outline),
+                        )
+                      : null,
+                ),
+              );
+            },
+          );
+        },
+      ),
+    );
+  }
+}
+
+class ClubSettingsView extends StatefulWidget {
+  const ClubSettingsView({
+    super.key,
+    required this.club,
+    required this.canManage,
+  });
+  final Map<String, dynamic> club;
+  final bool canManage;
+
+  @override
+  State<ClubSettingsView> createState() => _ClubSettingsViewState();
+}
+
+class _ClubSettingsViewState extends State<ClubSettingsView> {
+  final repo = UniClubRepository();
+  late final name = TextEditingController(text: '${widget.club['name']}');
+  late final description =
+      TextEditingController(text: '${widget.club['description'] ?? ''}');
+  late final location =
+      TextEditingController(text: '${widget.club['location'] ?? ''}');
+  late String? logoUrl = widget.club['logo_url'] as String?;
+  late String? bannerUrl = widget.club['banner_url'] as String?;
+  bool saving = false;
+
+  Future<String?> uploadImage(String folder) async {
+    final image = await ImagePicker()
+        .pickImage(source: ImageSource.gallery, imageQuality: 84);
+    if (image == null) return null;
+    return repo.upload(
+      bucket: 'club-media',
+      bytes: await image.readAsBytes(),
+      extension: image.name.split('.').last.toLowerCase(),
+      folder: '${widget.club['id']}/$folder',
+    );
+  }
+
+  Future<void> save() async {
+    if (name.text.trim().isEmpty || saving) return;
+    setState(() => saving = true);
+    try {
+      await repo.client.from('clubs').update({
+        'name': name.text.trim(),
+        'description': description.text.trim(),
+        'location': location.text.trim(),
+        'logo_url': logoUrl,
+        'banner_url': bannerUrl,
+      }).eq('id', widget.club['id']);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Club settings saved')),
+        );
+      }
+    } catch (error) {
+      if (mounted) showErrorSnackBar(context, error);
+    } finally {
+      if (mounted) setState(() => saving = false);
+    }
+  }
+
+  Future<void> deleteClub() async {
+    final accepted = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete club?'),
+        content: Text(
+          '${widget.club['name']} and all of its events, memberships, '
+          'tasks and content will be permanently deleted.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Delete club'),
+          ),
+        ],
+      ),
+    );
+    if (accepted != true) return;
+    try {
+      await repo.client.from('clubs').delete().eq('id', widget.club['id']);
+      if (mounted) Navigator.of(context).pop();
+    } catch (error) {
+      if (mounted) showErrorSnackBar(context, error);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!widget.canManage) {
+      return const EmptyState(
+        icon: Icons.lock_outline,
+        title: 'Settings are restricted',
+        message: 'Only the club owner can update these settings.',
+      );
+    }
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 104),
+      children: [
+        NetworkPicture(
+          url: bannerUrl,
+          width: double.infinity,
+          height: 170,
+        ),
+        const SizedBox(height: 10),
+        OutlinedButton.icon(
+          onPressed: () async {
+            final value = await uploadImage('banner');
+            if (value != null && mounted) setState(() => bannerUrl = value);
           },
+          icon: const Icon(Icons.image_outlined),
+          label: const Text('Change banner'),
+        ),
+        const SizedBox(height: 10),
+        Row(
+          children: [
+            NetworkPicture(
+              url: logoUrl,
+              width: 72,
+              height: 72,
+              borderRadius: 22,
+            ),
+            const SizedBox(width: 12),
+            OutlinedButton.icon(
+              onPressed: () async {
+                final value = await uploadImage('logo');
+                if (value != null && mounted) setState(() => logoUrl = value);
+              },
+              icon: const Icon(Icons.photo_camera_outlined),
+              label: const Text('Change logo'),
+            ),
+          ],
+        ),
+        const SizedBox(height: 18),
+        TextField(
+          controller: name,
+          decoration: const InputDecoration(labelText: 'Club name'),
+        ),
+        const SizedBox(height: 12),
+        TextField(
+          controller: description,
+          minLines: 4,
+          maxLines: 8,
+          decoration: const InputDecoration(labelText: 'Description'),
+        ),
+        const SizedBox(height: 12),
+        TextField(
+          controller: location,
+          decoration: const InputDecoration(labelText: 'Location'),
+        ),
+        const SizedBox(height: 18),
+        FilledButton(
+          onPressed: saving ? null : save,
+          child: Text(saving ? 'Saving…' : 'Save settings'),
+        ),
+        const SizedBox(height: 30),
+        Text('Danger zone',
+            style: TextStyle(color: Theme.of(context).colorScheme.error)),
+        const SizedBox(height: 8),
+        OutlinedButton.icon(
+          onPressed: deleteClub,
+          style: OutlinedButton.styleFrom(
+            foregroundColor: Theme.of(context).colorScheme.error,
+          ),
+          icon: const Icon(Icons.delete_forever_outlined),
+          label: const Text('Delete club'),
         ),
       ],
     );
+  }
+
+  @override
+  void dispose() {
+    name.dispose();
+    description.dispose();
+    location.dispose();
+    super.dispose();
   }
 }

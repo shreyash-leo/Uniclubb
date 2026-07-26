@@ -113,7 +113,12 @@ class _ClubTasksViewState extends State<ClubTasksView> {
     }
   }
 
-  void refresh() => setState(() => future = load());
+  void refresh() {
+    final next = load();
+    setState(() {
+      future = next;
+    });
+  }
 
   @override
   Widget build(BuildContext context) {

@@ -63,6 +63,114 @@ class UniClubRepository {
             .map((rows) => rows.cast<Map<String, dynamic>>()),
       );
 
+  Future<List<Map<String, dynamic>>> homeFeedPosts() async {
+    final values = await Future.wait<dynamic>([
+      profile(),
+      client.from('club_follows').select('club_id').eq('user_id', userId),
+      client
+          .from('posts')
+          .select(
+            '*, profiles!posts_author_id_fkey('
+            'full_name,username,avatar_url,college_id), '
+            'clubs(name,logo_url,college_id), '
+            'post_likes(user_id), post_comments(id)',
+          )
+          .eq('visibility', 'public')
+          .order('created_at', ascending: false)
+          .limit(100),
+    ]);
+    final currentProfile =
+        values[0] as Map<String, dynamic>? ?? const <String, dynamic>{};
+    final collegeId = currentProfile['college_id'];
+    final followedClubIds = List<Map<String, dynamic>>.from(values[1] as List)
+        .map((row) => '${row['club_id']}')
+        .toSet();
+    final rows =
+        List<Map<String, dynamic>>.from(values[2] as List).where((row) {
+      if (collegeId == null) return true;
+      final club = row['clubs'] as Map? ?? const {};
+      final author = row['profiles'] as Map? ?? const {};
+      return club['college_id'] == collegeId ||
+          (row['club_id'] == null && author['college_id'] == collegeId);
+    }).toList(growable: false);
+    for (final row in rows) {
+      final likes = (row['post_likes'] as List?)?.length ?? 0;
+      final comments = (row['post_comments'] as List?)?.length ?? 0;
+      final createdAt = DateTime.tryParse('${row['created_at']}');
+      final ageHours = createdAt == null
+          ? 720
+          : DateTime.now().difference(createdAt).inHours.clamp(0, 720);
+      final followed = followedClubIds.contains('${row['club_id']}');
+      row['feed_source'] = followed ? 'following' : 'trending';
+      row['feed_score'] =
+          (followed ? 1000000 : 0) + likes * 100 + comments * 140 - ageHours;
+    }
+    final following = rows
+        .where((row) => row['feed_source'] == 'following')
+        .toList(growable: true)
+      ..sort(
+          (a, b) => (b['feed_score'] as num).compareTo(a['feed_score'] as num));
+    final trending = rows
+        .where((row) => row['feed_source'] == 'trending')
+        .toList(growable: true)
+      ..sort(
+          (a, b) => (b['feed_score'] as num).compareTo(a['feed_score'] as num));
+    final feed = <Map<String, dynamic>>[];
+    while (following.isNotEmpty || trending.isNotEmpty) {
+      for (var index = 0; index < 3 && following.isNotEmpty; index++) {
+        feed.add(following.removeAt(0));
+      }
+      if (trending.isNotEmpty) feed.add(trending.removeAt(0));
+      if (following.isEmpty && trending.isNotEmpty) {
+        feed.addAll(trending);
+        trending.clear();
+      }
+    }
+    return feed;
+  }
+
+  Future<List<Map<String, dynamic>>> recommendedEvents({
+    List<String>? types,
+    int limit = 50,
+  }) async {
+    var query = client
+        .from('events')
+        .select('*, clubs(name,logo_url,college_id)')
+        .eq('status', 'published')
+        .gte('ends_at', DateTime.now().toUtc().toIso8601String());
+    if (types != null && types.isNotEmpty) {
+      query = query.inFilter('event_type', types);
+    }
+    final values = await Future.wait<dynamic>([
+      profile(),
+      query.order('starts_at').limit(limit),
+    ]);
+    final currentProfile =
+        values[0] as Map<String, dynamic>? ?? const <String, dynamic>{};
+    final collegeId = currentProfile['college_id'];
+    return List<Map<String, dynamic>>.from(values[1] as List).where((event) {
+      if (collegeId == null) return true;
+      final club = event['clubs'] as Map? ?? const {};
+      return club['college_id'] == collegeId;
+    }).toList(growable: false);
+  }
+
+  Future<void> setPostLiked(String postId, bool liked) async {
+    if (liked) {
+      await client.from('post_likes').upsert(
+        {'post_id': postId, 'user_id': userId},
+        onConflict: 'post_id,user_id',
+        ignoreDuplicates: true,
+      );
+    } else {
+      await client
+          .from('post_likes')
+          .delete()
+          .eq('post_id', postId)
+          .eq('user_id', userId);
+    }
+  }
+
   Stream<List<Map<String, dynamic>>> _withInitialEmpty(
     Stream<List<Map<String, dynamic>>> source,
   ) async* {
@@ -83,11 +191,18 @@ class UniClubRepository {
           .select('*, colleges(name, short_name)')
           .order('name'));
 
-  Future<List<Map<String, dynamic>>> discoverClubs() async =>
-      List<Map<String, dynamic>>.from(
-        await client.rpc('discover_clubs', params: {'result_limit': 36})
-            as List,
-      );
+  Future<List<Map<String, dynamic>>> discoverClubs() async {
+    final values = await Future.wait<dynamic>([
+      profile(),
+      client.rpc('discover_clubs', params: {'result_limit': 100}),
+    ]);
+    final currentProfile =
+        values[0] as Map<String, dynamic>? ?? const <String, dynamic>{};
+    final collegeId = currentProfile['college_id'];
+    return List<Map<String, dynamic>>.from(values[1] as List)
+        .where((club) => collegeId == null || club['college_id'] == collegeId)
+        .toList(growable: false);
+  }
 
   Future<Map<String, dynamic>> clubPublicCounts(String clubId) async =>
       Map<String, dynamic>.from(
@@ -108,6 +223,44 @@ class UniClubRepository {
         await client.rpc('get_or_create_direct_conversation',
             params: {'target_user': targetUserId}) as Map,
       );
+
+  Future<List<Map<String, dynamic>>> clubPeopleSearch(String query) async {
+    final results = (await globalSearch(query))
+        .where((row) => row['kind'] == 'user' && '${row['id']}' != userId)
+        .toList(growable: false);
+    if (results.isEmpty) return const [];
+
+    final allowed = await sharedClubMemberIds();
+    return results
+        .where((row) => allowed.contains('${row['id']}'))
+        .toList(growable: false);
+  }
+
+  Future<Set<String>> sharedClubMemberIds() async {
+    final memberships = await myMemberships();
+    final clubIds =
+        memberships.map((row) => '${row['club_id']}').toSet().toList();
+    if (clubIds.isEmpty) return <String>{};
+    final rows = List<Map<String, dynamic>>.from(await client
+        .from('club_memberships')
+        .select('user_id')
+        .inFilter('club_id', clubIds)
+        .eq('status', 'active'));
+    return rows.map((row) => '${row['user_id']}').toSet();
+  }
+
+  Future<void> sendMessage({
+    required String conversationId,
+    required String body,
+  }) =>
+      client.from('messages').insert({
+        // A client-generated primary key makes retries and realtime
+        // reconciliation deterministic.
+        'id': _uuid.v4(),
+        'conversation_id': conversationId,
+        'sender_id': userId,
+        'body': body,
+      });
 
   Future<List<Map<String, dynamic>>> myMemberships() async =>
       List<Map<String, dynamic>>.from(await client
