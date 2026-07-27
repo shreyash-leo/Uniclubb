@@ -159,10 +159,59 @@ class _ClubTasksViewState extends State<ClubTasksView> {
                   onRefresh: () async => refresh(),
                   child: ListView.separated(
                     padding: const EdgeInsets.fromLTRB(16, 16, 16, 104),
-                    itemCount: data.tasks.length,
+                    itemCount: data.tasks.length + 1,
                     separatorBuilder: (_, __) => const SizedBox(height: 10),
                     itemBuilder: (context, index) {
-                      final task = data.tasks[index];
+                      if (index == 0) {
+                        final completed = data.tasks
+                            .where((task) => task['status'] == 'completed')
+                            .length;
+                        final active = data.tasks
+                            .where((task) => task['status'] == 'in_progress')
+                            .length;
+                        final todo = data.tasks.length - completed - active;
+                        return Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text('My work',
+                                style:
+                                    Theme.of(context).textTheme.headlineSmall),
+                            const SizedBox(height: 4),
+                            Text(
+                              'Track assignments from all your clubs.',
+                              style: Theme.of(context).textTheme.bodySmall,
+                            ),
+                            const SizedBox(height: 14),
+                            Row(
+                              children: [
+                                _TaskCount(
+                                    label: 'To do',
+                                    value: todo,
+                                    color: Theme.of(context)
+                                        .colorScheme
+                                        .secondaryContainer),
+                                const SizedBox(width: 8),
+                                _TaskCount(
+                                    label: 'Active',
+                                    value: active,
+                                    color: Theme.of(context)
+                                        .colorScheme
+                                        .primaryContainer),
+                                const SizedBox(width: 8),
+                                _TaskCount(
+                                    label: 'Done',
+                                    value: completed,
+                                    color: Theme.of(context)
+                                        .colorScheme
+                                        .tertiaryContainer),
+                              ],
+                            ),
+                            const SizedBox(height: 18),
+                            const SectionHeader('Assignments'),
+                          ],
+                        );
+                      }
+                      final task = data.tasks[index - 1];
                       final club = task['clubs'] as Map<String, dynamic>? ?? {};
                       final assignee =
                           task['profiles'] as Map<String, dynamic>? ?? {};
@@ -232,6 +281,35 @@ class _ClubTasksViewState extends State<ClubTasksView> {
       },
     );
   }
+}
+
+class _TaskCount extends StatelessWidget {
+  const _TaskCount({
+    required this.label,
+    required this.value,
+    required this.color,
+  });
+  final String label;
+  final int value;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) => Expanded(
+        child: Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: color,
+            borderRadius: BorderRadius.circular(18),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('$value', style: Theme.of(context).textTheme.titleLarge),
+              Text(label),
+            ],
+          ),
+        ),
+      );
 }
 
 class _TaskData {

@@ -15,13 +15,14 @@ class MessagesScreen extends StatefulWidget {
 
 class _MessagesScreenState extends State<MessagesScreen> {
   final repo = UniClubRepository();
-  String filter = '';
+  String filter = 'all';
 
   Future<List<Map<String, dynamic>>> conversations() async {
     final rows = List<Map<String, dynamic>>.from(await repo.client
         .from('conversation_members')
         .select(
           '*, conversations(*, clubs(name,logo_url), '
+          'messages(body,created_at,sender_id,attachment), '
           'conversation_members!conversation_members_conversation_id_fkey('
           'user_id, profiles!conversation_members_user_id_fkey('
           'full_name,avatar_url)))',
@@ -66,47 +67,38 @@ class _MessagesScreenState extends State<MessagesScreen> {
   }
 
   Future<void> openFilter() async {
-    var draft = filter;
     final value = await showModalBottomSheet<String>(
       context: context,
-      isScrollControlled: true,
-      builder: (context) => Padding(
-        padding: EdgeInsets.fromLTRB(
-          16,
-          16,
-          16,
-          MediaQuery.viewInsetsOf(context).bottom + 16,
-        ),
+      builder: (context) => SafeArea(
         child: Column(
           mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Filter conversations',
-                style: Theme.of(context).textTheme.titleMedium),
-            const SizedBox(height: 12),
-            TextFormField(
-              initialValue: filter,
-              autofocus: true,
-              decoration: const InputDecoration(
-                hintText: 'Name or club',
-                prefixIcon: Icon(Icons.search),
-              ),
-              onChanged: (value) => draft = value,
-              onFieldSubmitted: (value) => Navigator.pop(context, value.trim()),
+            const ListTile(
+              title: Text('Filter chats'),
+              subtitle: Text('Choose which conversations to show'),
             ),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                TextButton(
-                  onPressed: () => Navigator.pop(context, ''),
-                  child: const Text('Clear'),
-                ),
-                const Spacer(),
-                FilledButton(
-                  onPressed: () => Navigator.pop(context, draft.trim()),
-                  child: const Text('Apply'),
-                ),
-              ],
+            RadioGroup<String>(
+              groupValue: filter,
+              onChanged: (value) => Navigator.pop(context, value),
+              child: const Column(
+                children: [
+                  RadioListTile<String>(
+                    value: 'all',
+                    title: Text('All chats'),
+                    secondary: Icon(Icons.forum_outlined),
+                  ),
+                  RadioListTile<String>(
+                    value: 'unread',
+                    title: Text('Unread'),
+                    secondary: Icon(Icons.mark_chat_unread_outlined),
+                  ),
+                  RadioListTile<String>(
+                    value: 'muted',
+                    title: Text('Muted'),
+                    secondary: Icon(Icons.notifications_off_outlined),
+                  ),
+                ],
+              ),
             ),
           ],
         ),
@@ -172,10 +164,14 @@ class _MessagesScreenState extends State<MessagesScreen> {
           const SizedBox(width: 8),
           ActionChip(
             avatar: Icon(
-              filter.isEmpty ? Icons.filter_list : Icons.filter_alt,
+              filter == 'all' ? Icons.filter_list : Icons.filter_alt,
               size: 17,
             ),
-            label: Text(filter.isEmpty ? 'Filter' : 'Filtered'),
+            label: Text(switch (filter) {
+              'unread' => 'Unread',
+              'muted' => 'Muted',
+              _ => 'Filter',
+            }),
             onPressed: openFilter,
             side: BorderSide(
               color: Theme.of(context).colorScheme.outlineVariant,
@@ -188,10 +184,11 @@ class _MessagesScreenState extends State<MessagesScreen> {
       length: 2,
       child: Scaffold(
         appBar: widget.embedded ? null : AppBar(title: const Text('Messages')),
-        floatingActionButton: FloatingActionButton(
+        floatingActionButton: FloatingActionButton.extended(
             heroTag: 'messages-compose',
             onPressed: startDirect,
-            child: const Icon(Icons.edit_outlined)),
+            icon: const Icon(Icons.edit_outlined),
+            label: const Text('New message')),
         body: widget.embedded
             ? Column(
                 children: [
@@ -218,12 +215,9 @@ class _MessagesScreenState extends State<MessagesScreen> {
     final filtered = rows.where((row) {
       final conversation = row['conversations'] as Map? ?? const {};
       if (conversation['kind'] != kind) return false;
-      final peer = _directPeer(conversation);
-      final title = kind == 'direct'
-          ? '${peer?['full_name'] ?? 'Club member'}'
-          : '${_club(conversation)?['name'] ?? conversation['title'] ?? ''}';
-      return filter.isEmpty ||
-          title.toLowerCase().contains(filter.toLowerCase());
+      if (filter == 'muted') return row['muted'] == true;
+      if (filter == 'unread') return _isUnread(row, conversation);
+      return true;
     }).toList(growable: false);
     if (filtered.isEmpty) {
       return EmptyState(
@@ -242,6 +236,8 @@ class _MessagesScreenState extends State<MessagesScreen> {
         final title = kind == 'direct'
             ? '${peer?['full_name'] ?? 'Club member'}'
             : '${_club(conversation)?['name'] ?? conversation['title'] ?? _kind(conversation['kind'])}';
+        final latest = _latestMessage(conversation);
+        final unread = _isUnread(filtered[index], conversation);
         return Card(
           margin: const EdgeInsets.only(bottom: 8),
           child: ListTile(
@@ -259,17 +255,57 @@ class _MessagesScreenState extends State<MessagesScreen> {
                     borderRadius: 22,
                   ),
             title: Text(title),
-            subtitle: Text(kind == 'club' ? 'Club chat' : 'Direct message'),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: () => Navigator.push(
-              context,
-              MaterialPageRoute<void>(
-                builder: (_) => ConversationScreen(
-                  conversationId: '${conversation['id']}',
-                  title: title,
-                ),
-              ),
+            subtitle: Text(
+              latest == null
+                  ? (kind == 'club' ? 'Club chat' : 'Start a conversation')
+                  : latest['attachment'] is Map &&
+                          (latest['attachment'] as Map)['type'] == 'event'
+                      ? 'Shared an event'
+                      : '${latest['body'] ?? ''}',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
             ),
+            trailing: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                if (latest != null)
+                  Text(
+                    _messageTime(latest['created_at']),
+                    style: Theme.of(context).textTheme.labelSmall,
+                  ),
+                const SizedBox(height: 4),
+                if (unread)
+                  Container(
+                    width: 10,
+                    height: 10,
+                    decoration: BoxDecoration(
+                      color: Theme.of(context).colorScheme.primary,
+                      shape: BoxShape.circle,
+                    ),
+                  )
+                else if (filtered[index]['muted'] == true)
+                  const Icon(Icons.notifications_off_outlined, size: 16),
+              ],
+            ),
+            onTap: () async {
+              await repo.client
+                  .from('conversation_members')
+                  .update({'last_read_at': DateTime.now().toIso8601String()})
+                  .eq('conversation_id', conversation['id'])
+                  .eq('user_id', repo.userId);
+              if (!context.mounted) return;
+              await Navigator.push(
+                context,
+                MaterialPageRoute<void>(
+                  builder: (_) => ConversationScreen(
+                    conversationId: '${conversation['id']}',
+                    title: title,
+                  ),
+                ),
+              );
+              if (mounted) setState(() {});
+            },
           ),
         );
       },
@@ -292,6 +328,28 @@ class _MessagesScreenState extends State<MessagesScreen> {
   Map<String, dynamic>? _club(Map<dynamic, dynamic> conversation) {
     final value = conversation['clubs'];
     return value is Map ? Map<String, dynamic>.from(value) : null;
+  }
+
+  bool _isUnread(
+      Map<String, dynamic> membership, Map<dynamic, dynamic> conversation) {
+    final latestMessage = _latestMessage(conversation);
+    final latest = DateTime.tryParse('${latestMessage?['created_at']}');
+    if (latest == null) return false;
+    final lastRead = DateTime.tryParse('${membership['last_read_at']}');
+    return lastRead == null || latest.isAfter(lastRead);
+  }
+
+  Map<String, dynamic>? _latestMessage(Map<dynamic, dynamic> conversation) {
+    final messages = conversation['messages'] as List? ?? const [];
+    Map<String, dynamic>? latest;
+    for (final value in messages) {
+      final message = Map<String, dynamic>.from(value as Map);
+      if (latest == null ||
+          '${message['created_at']}'.compareTo('${latest['created_at']}') > 0) {
+        latest = message;
+      }
+    }
+    return latest;
   }
 }
 

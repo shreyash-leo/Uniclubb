@@ -144,11 +144,14 @@ class _EventPostCardState extends State<EventPostCard> {
               trailing: widget.headerTrailing ??
                   (widget.status == null ? null : StatusChip(widget.status!)),
             ),
-            NetworkPicture(
-              url: event['flyer_url'] as String?,
-              width: double.infinity,
-              height: 280,
-              borderRadius: 0,
+            AspectRatio(
+              aspectRatio: 4 / 5,
+              child: NetworkPicture(
+                url: event['flyer_url'] as String?,
+                width: double.infinity,
+                height: double.infinity,
+                borderRadius: 0,
+              ),
             ),
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 14, 16, 4),

@@ -247,8 +247,8 @@ class _CreateAdvancedEventScreenState extends State<CreateAdvancedEventScreen> {
   final venue = TextEditingController();
   final address = TextEditingController();
   final capacity = TextEditingController();
-  final ticketName = TextEditingController(text: 'General');
   final ticketPrice = TextEditingController(text: '0');
+  final paymentNote = TextEditingController();
   final speakers = TextEditingController();
   final guests = TextEditingController();
   final sponsors = TextEditingController();
@@ -262,8 +262,8 @@ class _CreateAdvancedEventScreenState extends State<CreateAdvancedEventScreen> {
   String approval = 'manual';
   bool waitlist = true;
   bool paid = false;
-  bool registrationEnabled = true;
-  String registrationType = 'solo';
+  bool registrationEnabled = false;
+  String registrationType = 'none';
   int teamMin = 2;
   int teamMax = 4;
   XFile? flyer;
@@ -293,7 +293,8 @@ class _CreateAdvancedEventScreenState extends State<CreateAdvancedEventScreen> {
 
   Future<void> create() async {
     if (!(formKey.currentState?.validate() ?? false)) return;
-    if (!ends.isAfter(starts) || deadline.isAfter(starts)) {
+    if (!ends.isAfter(starts) ||
+        (registrationEnabled && deadline.isAfter(starts))) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
           content: Text('Check the start, end and registration dates.')));
       return;
@@ -336,6 +337,7 @@ class _CreateAdvancedEventScreenState extends State<CreateAdvancedEventScreen> {
             'waitlist_enabled': waitlist,
             'approval_mode': approval,
             'is_paid': paid,
+            'payment_note': paymentNote.text.trim(),
             'agenda': lines(agenda),
             'speakers': lines(speakers),
             'guests': lines(guests),
@@ -389,7 +391,8 @@ class _CreateAdvancedEventScreenState extends State<CreateAdvancedEventScreen> {
       if (registrationEnabled) {
         await repo.client.from('event_ticket_types').insert({
           'event_id': event['id'],
-          'name': ticketName.text.trim(),
+          'name': 'General',
+          'description': paymentNote.text.trim(),
           'price': paid ? double.tryParse(ticketPrice.text) ?? 0 : 0,
           'capacity': int.tryParse(capacity.text),
         });
@@ -525,29 +528,31 @@ class _CreateAdvancedEventScreenState extends State<CreateAdvancedEventScreen> {
               decoration: const InputDecoration(labelText: 'Capacity'),
             ),
             const SizedBox(height: 12),
-            SwitchListTile(
-              contentPadding: EdgeInsets.zero,
-              title: const Text('Registration'),
-              subtitle: const Text('Allow people to register for this event'),
-              value: registrationEnabled,
-              onChanged: (value) => setState(() => registrationEnabled = value),
+            const SectionHeader('Registration mode'),
+            const SizedBox(height: 8),
+            SegmentedButton<String>(
+              segments: const [
+                ButtonSegment(
+                    value: 'none',
+                    icon: Icon(Icons.block_outlined),
+                    label: Text('None')),
+                ButtonSegment(
+                    value: 'solo',
+                    icon: Icon(Icons.person_outline),
+                    label: Text('Solo')),
+                ButtonSegment(
+                    value: 'team',
+                    icon: Icon(Icons.groups_outlined),
+                    label: Text('Team')),
+              ],
+              selected: {registrationType},
+              onSelectionChanged: (value) => setState(() {
+                registrationType = value.first;
+                registrationEnabled = registrationType != 'none';
+                if (!registrationEnabled) paid = false;
+              }),
             ),
             if (registrationEnabled) ...[
-              SegmentedButton<String>(
-                segments: const [
-                  ButtonSegment(
-                      value: 'solo',
-                      icon: Icon(Icons.person_outline),
-                      label: Text('Solo')),
-                  ButtonSegment(
-                      value: 'team',
-                      icon: Icon(Icons.groups_outlined),
-                      label: Text('Team')),
-                ],
-                selected: {registrationType},
-                onSelectionChanged: (value) =>
-                    setState(() => registrationType = value.first),
-              ),
               if (registrationType == 'team') ...[
                 const SizedBox(height: 12),
                 Row(
@@ -606,20 +611,24 @@ class _CreateAdvancedEventScreenState extends State<CreateAdvancedEventScreen> {
                   value: paid,
                   onChanged: (value) => setState(() => paid = value)),
               if (paid) ...[
-                Row(children: [
-                  Expanded(
-                      child: TextFormField(
-                          controller: ticketName,
-                          decoration:
-                              const InputDecoration(labelText: 'Ticket name'))),
-                  const SizedBox(width: 10),
-                  Expanded(
-                      child: TextFormField(
-                          controller: ticketPrice,
-                          keyboardType: TextInputType.number,
-                          decoration:
-                              const InputDecoration(labelText: 'Price ₹'))),
-                ]),
+                TextFormField(
+                  controller: ticketPrice,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(
+                    labelText: 'Price',
+                    prefixText: '₹ ',
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextFormField(
+                  controller: paymentNote,
+                  minLines: 2,
+                  maxLines: 4,
+                  decoration: const InputDecoration(
+                    labelText: 'Payment note',
+                    hintText: 'Payment instructions or important information',
+                  ),
+                ),
                 const SizedBox(height: 12),
               ],
               TextFormField(
@@ -682,8 +691,8 @@ class _CreateAdvancedEventScreenState extends State<CreateAdvancedEventScreen> {
       venue,
       address,
       capacity,
-      ticketName,
       ticketPrice,
+      paymentNote,
       speakers,
       guests,
       sponsors,

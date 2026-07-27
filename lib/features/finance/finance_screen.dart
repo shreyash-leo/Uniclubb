@@ -32,7 +32,7 @@ class _FinanceScreenState extends State<FinanceScreen> {
   Future<List<Map<String, dynamic>>> expenses() async =>
       List<Map<String, dynamic>>.from(await repo.client
           .from('expenses')
-          .select()
+          .select('*, events(id,title,flyer_url,event_type)')
           .eq('club_id', widget.club['id'])
           .order('created_at', ascending: false));
 
@@ -100,12 +100,19 @@ class _FinanceScreenState extends State<FinanceScreen> {
   Future<void> submitExpense() async {
     final availableBudgets =
         widget.canViewDashboard ? await budgets() : <Map<String, dynamic>>[];
+    final clubEvents = List<Map<String, dynamic>>.from(await repo.client
+        .from('events')
+        .select('id,title,starts_at')
+        .eq('club_id', widget.club['id'])
+        .order('starts_at', ascending: false)
+        .limit(100));
     if (!mounted) return;
     final title = TextEditingController();
     final amount = TextEditingController();
     final description = TextEditingController();
     PlatformFile? receipt;
     String? budgetId;
+    String? eventId;
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => StatefulBuilder(
@@ -119,6 +126,24 @@ class _FinanceScreenState extends State<FinanceScreen> {
                   TextField(
                       controller: title,
                       decoration: const InputDecoration(labelText: 'Title')),
+                  const SizedBox(height: 10),
+                  DropdownButtonFormField<String?>(
+                    isExpanded: true,
+                    decoration:
+                        const InputDecoration(labelText: 'Related event'),
+                    items: [
+                      const DropdownMenuItem(
+                          value: null, child: Text('General club expense')),
+                      ...clubEvents.map((event) => DropdownMenuItem(
+                            value: '${event['id']}',
+                            child: Text(
+                              '${event['title']}',
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          )),
+                    ],
+                    onChanged: (value) => eventId = value,
+                  ),
                   const SizedBox(height: 10),
                   if (availableBudgets.isNotEmpty) ...[
                     DropdownButtonFormField<String?>(
@@ -204,6 +229,7 @@ class _FinanceScreenState extends State<FinanceScreen> {
         'description': description.text.trim(),
         'amount': double.parse(amount.text),
         'budget_id': budgetId,
+        'event_id': eventId,
         'receipt_urls': urls,
       });
       setState(() {});
@@ -397,6 +423,12 @@ class _FinanceScreenState extends State<FinanceScreen> {
             .where((row) => row['status'] == 'pending')
             .fold<double>(
                 0, (sum, row) => sum + (row['amount'] as num).toDouble());
+        final eventGroups = <String, List<Map<String, dynamic>>>{};
+        for (final row in rows) {
+          final event = row['events'] as Map? ?? const {};
+          final key = '${event['title'] ?? 'General club expenses'}';
+          eventGroups.putIfAbsent(key, () => []).add(row);
+        }
         if (!widget.canViewDashboard) {
           return ListView(
             padding: const EdgeInsets.fromLTRB(16, 16, 16, 96),
@@ -428,7 +460,8 @@ class _FinanceScreenState extends State<FinanceScreen> {
                         onTap: () => showExpense(row),
                         title: Text('${row['title']}'),
                         subtitle: Text(
-                            '₹${row['amount']} · ${formatDate(row['created_at'])}'),
+                            '₹${row['amount']} · ${(row['events'] as Map?)?['title'] ?? 'General'}\n${formatDate(row['created_at'])}'),
+                        isThreeLine: true,
                         trailing: StatusChip('${row['status']}'),
                       ),
                     )),
@@ -523,6 +556,42 @@ class _FinanceScreenState extends State<FinanceScreen> {
               },
             ),
             const SizedBox(height: 18),
+            const SectionHeader('Event finance'),
+            const SizedBox(height: 8),
+            if (eventGroups.isEmpty)
+              const Text('Event-wise spending will appear here.')
+            else
+              ...eventGroups.entries.map((entry) {
+                final eventApproved = entry.value
+                    .where((row) =>
+                        row['status'] == 'approved' || row['status'] == 'paid')
+                    .fold<double>(0,
+                        (sum, row) => sum + (row['amount'] as num).toDouble());
+                final eventPending = entry.value
+                    .where((row) => row['status'] == 'pending')
+                    .fold<double>(0,
+                        (sum, row) => sum + (row['amount'] as num).toDouble());
+                return Card(
+                  margin: const EdgeInsets.only(bottom: 8),
+                  child: Padding(
+                    padding: const EdgeInsets.all(14),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(entry.key,
+                            style: Theme.of(context).textTheme.titleMedium),
+                        const SizedBox(height: 5),
+                        Text(
+                          'Approved ₹${eventApproved.toStringAsFixed(2)} · '
+                          'Pending ₹${eventPending.toStringAsFixed(2)} · '
+                          '${entry.value.length} expense${entry.value.length == 1 ? '' : 's'}',
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              }),
+            const SizedBox(height: 18),
             const SectionHeader('Expenses'),
             const SizedBox(height: 8),
             if (rows.isEmpty)
@@ -534,7 +603,8 @@ class _FinanceScreenState extends State<FinanceScreen> {
                       onTap: () => showExpense(row),
                       title: Text('${row['title']}'),
                       subtitle: Text(
-                          '₹${row['amount']} · ${formatDate(row['created_at'])}'),
+                          '₹${row['amount']} · ${(row['events'] as Map?)?['title'] ?? 'General'}\n${formatDate(row['created_at'])}'),
+                      isThreeLine: true,
                       trailing: widget.canApprove && row['status'] == 'pending'
                           ? PopupMenuButton<String>(
                               onSelected: (value) =>

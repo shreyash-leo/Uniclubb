@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 
 import '../../core/supabase/uniclub_repository.dart';
 import '../../shared/widgets.dart';
+import '../club/clubs_hub_screen.dart';
+import '../event/event_detail_screen.dart';
 import '../messaging/messages_screen.dart';
 
 class PublicProfileScreen extends StatefulWidget {
@@ -21,11 +23,33 @@ class _PublicProfileScreenState extends State<PublicProfileScreen> {
   Object? loadError;
   int followers = 0;
   int followingCount = 0;
+  late Future<_PublicProfileActivity> activity = loadActivity();
 
   @override
   void initState() {
     super.initState();
     load();
+  }
+
+  Future<_PublicProfileActivity> loadActivity() async {
+    final values = await Future.wait<dynamic>([
+      repo.client
+          .from('club_memberships')
+          .select('status, joined_at, clubs(*), club_positions(name)')
+          .eq('user_id', widget.userId)
+          .eq('status', 'active')
+          .order('joined_at', ascending: false),
+      repo.client
+          .from('events')
+          .select('*, clubs(name,logo_url,college_id)')
+          .eq('created_by', widget.userId)
+          .eq('status', 'published')
+          .order('starts_at', ascending: false),
+    ]);
+    return _PublicProfileActivity(
+      memberships: List<Map<String, dynamic>>.from(values[0] as List),
+      events: List<Map<String, dynamic>>.from(values[1] as List),
+    );
   }
 
   Future<void> load() async {
@@ -233,10 +257,120 @@ class _PublicProfileScreenState extends State<PublicProfileScreen> {
             title: Text('${profile!['department'] ?? 'Department not set'}'),
             subtitle: Text('${profile!['academic_year'] ?? 'Year not set'}'),
           ),
+          const SizedBox(height: 18),
+          FutureBuilder<_PublicProfileActivity>(
+            future: activity,
+            builder: (context, snapshot) {
+              if (snapshot.hasError) {
+                return AsyncErrorState(error: snapshot.error);
+              }
+              if (!snapshot.hasData) {
+                return const Padding(
+                  padding: EdgeInsets.all(30),
+                  child: Center(child: CircularProgressIndicator()),
+                );
+              }
+              final data = snapshot.data!;
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceAround,
+                    children: [
+                      _ProfileStat(
+                          value: data.memberships.length, label: 'Clubs'),
+                      _ProfileStat(
+                          value: data.events.length, label: 'Events organized'),
+                    ],
+                  ),
+                  const SizedBox(height: 24),
+                  const SectionHeader('Club positions'),
+                  const SizedBox(height: 8),
+                  if (data.memberships.isEmpty)
+                    const Text('No active club positions.')
+                  else
+                    ...data.memberships.map((membership) {
+                      final club =
+                          membership['clubs'] as Map<String, dynamic>? ?? {};
+                      final position = membership['club_positions']
+                              as Map<String, dynamic>? ??
+                          {};
+                      return Card(
+                        margin: const EdgeInsets.only(bottom: 8),
+                        child: ListTile(
+                          leading: NetworkPicture(
+                            url: club['logo_url'] as String?,
+                            width: 48,
+                            height: 48,
+                            borderRadius: 24,
+                          ),
+                          title: Text('${club['name'] ?? 'Club'}'),
+                          subtitle: Text(
+                              '${position['name'] ?? 'Member'} · Since ${formatDate(membership['joined_at'], time: false)}'),
+                          trailing: const Icon(Icons.chevron_right),
+                          onTap: club.isEmpty
+                              ? null
+                              : () => Navigator.push(
+                                    context,
+                                    MaterialPageRoute<void>(
+                                      builder: (_) =>
+                                          ClubDiscoverDetailScreen(club: club),
+                                    ),
+                                  ),
+                        ),
+                      );
+                    }),
+                  const SizedBox(height: 22),
+                  const SectionHeader('Events organized'),
+                  const SizedBox(height: 8),
+                  if (data.events.isEmpty)
+                    const Text('No published events organized yet.')
+                  else
+                    GridView.builder(
+                      shrinkWrap: true,
+                      physics: const NeverScrollableScrollPhysics(),
+                      gridDelegate:
+                          const SliverGridDelegateWithFixedCrossAxisCount(
+                        crossAxisCount: 3,
+                        crossAxisSpacing: 3,
+                        mainAxisSpacing: 3,
+                      ),
+                      itemCount: data.events.length,
+                      itemBuilder: (context, index) {
+                        final event = data.events[index];
+                        return InkWell(
+                          onTap: () => Navigator.push(
+                            context,
+                            MaterialPageRoute<void>(
+                              builder: (_) => EventDetailScreen(event: event),
+                            ),
+                          ),
+                          child: NetworkPicture(
+                            url: event['flyer_url'] as String?,
+                            width: double.infinity,
+                            height: double.infinity,
+                            borderRadius: 4,
+                          ),
+                        );
+                      },
+                    ),
+                ],
+              );
+            },
+          ),
         ],
       ),
     );
   }
+}
+
+class _PublicProfileActivity {
+  const _PublicProfileActivity({
+    required this.memberships,
+    required this.events,
+  });
+  final List<Map<String, dynamic>> memberships;
+  final List<Map<String, dynamic>> events;
 }
 
 class _ProfileStat extends StatelessWidget {

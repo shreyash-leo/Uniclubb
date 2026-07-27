@@ -7,6 +7,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../core/supabase/uniclub_repository.dart';
 import '../../shared/notification_action.dart';
 import '../../shared/widgets.dart';
+import '../event/event_detail_screen.dart';
 import '../search/global_search_screen.dart';
 import 'club_dashboard_screen.dart';
 
@@ -29,8 +30,10 @@ class _ClubsHubScreenState extends State<ClubsHubScreen> {
           title: const Text('Clubs'),
           actions: const [NotificationAction()],
           bottom: const TabBar(
+            isScrollable: true,
+            tabAlignment: TabAlignment.center,
             tabs: [
-              Tab(text: 'Discover clubs'),
+              Tab(text: 'Discover'),
               Tab(text: 'My clubs'),
               Tab(text: 'Leaderboard'),
             ],
@@ -298,12 +301,87 @@ class _ClubDiscoverDetailScreenState extends State<ClubDiscoverDetailScreen> {
   bool following = false;
   String? membershipStatus;
   late Future<Map<String, dynamic>> counts;
+  late Future<_ClubPublicData> content;
 
   @override
   void initState() {
     super.initState();
     counts = repo.clubPublicCounts('${widget.club['id']}');
+    content = loadContent();
     loadRelationship();
+  }
+
+  Future<_ClubPublicData> loadContent() async {
+    final clubId = '${widget.club['id']}';
+    final values = await Future.wait<dynamic>([
+      repo.client
+          .from('events')
+          .select('*, clubs(name,logo_url,college_id)')
+          .eq('club_id', clubId)
+          .eq('status', 'published')
+          .order('starts_at', ascending: false)
+          .limit(12),
+      repo.client
+          .from('club_memberships')
+          .select(
+              'user_id, profiles!club_memberships_user_id_fkey(id,full_name,username,avatar_url,department), club_positions(name)')
+          .eq('club_id', clubId)
+          .eq('status', 'active')
+          .order('joined_at'),
+    ]);
+    return _ClubPublicData(
+      events: List<Map<String, dynamic>>.from(values[0] as List),
+      members: List<Map<String, dynamic>>.from(values[1] as List),
+    );
+  }
+
+  Future<void> showFollowers() async {
+    final rows = List<Map<String, dynamic>>.from(await repo.client
+        .from('club_follows')
+        .select(
+            'user_id, profiles!club_follows_user_id_fkey(full_name,username,avatar_url,department)')
+        .eq('club_id', widget.club['id'])
+        .order('created_at', ascending: false));
+    if (!mounted) return;
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (context) => DraggableScrollableSheet(
+        expand: false,
+        initialChildSize: .65,
+        builder: (context, controller) => Column(
+          children: [
+            const ListTile(title: Text('Followers')),
+            Expanded(
+              child: rows.isEmpty
+                  ? const EmptyState(
+                      icon: Icons.people_outline,
+                      title: 'No followers yet',
+                    )
+                  : ListView.builder(
+                      controller: controller,
+                      itemCount: rows.length,
+                      itemBuilder: (context, index) {
+                        final profile =
+                            rows[index]['profiles'] as Map? ?? const {};
+                        return ListTile(
+                          leading: NetworkPicture(
+                            url: profile['avatar_url'] as String?,
+                            width: 46,
+                            height: 46,
+                            borderRadius: 23,
+                          ),
+                          title: Text('${profile['full_name'] ?? 'Student'}'),
+                          subtitle: Text(
+                              '@${profile['username'] ?? 'member'} · ${profile['department'] ?? 'Campus'}'),
+                        );
+                      },
+                    ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   Future<void> loadRelationship() async {
@@ -395,6 +473,13 @@ class _ClubDiscoverDetailScreenState extends State<ClubDiscoverDetailScreen> {
           ),
           Text('${club['name']}',
               style: Theme.of(context).textTheme.headlineSmall),
+          if ('${club['tagline'] ?? ''}'.isNotEmpty) ...[
+            const SizedBox(height: 4),
+            Text(
+              '${club['tagline']}',
+              style: Theme.of(context).textTheme.bodyLarge,
+            ),
+          ],
           const SizedBox(height: 6),
           Text(
               '${club['category']} · ${club['club_type'] ?? 'Student club'} · ${club['location'] ?? ''}'),
@@ -411,7 +496,8 @@ class _ClubDiscoverDetailScreenState extends State<ClubDiscoverDetailScreen> {
                   const SizedBox(width: 28),
                   _ClubStat(
                       value: (values['followers'] as num?)?.toInt(),
-                      label: 'Followers'),
+                      label: 'Followers',
+                      onTap: showFollowers),
                   const SizedBox(width: 28),
                   _ClubStat(
                       value: (values['events'] as num?)?.toInt(),
@@ -453,6 +539,82 @@ class _ClubDiscoverDetailScreenState extends State<ClubDiscoverDetailScreen> {
               ),
             ],
           ),
+          const SizedBox(height: 28),
+          FutureBuilder<_ClubPublicData>(
+            future: content,
+            builder: (context, snapshot) {
+              if (snapshot.hasError) {
+                return AsyncErrorState(error: snapshot.error);
+              }
+              if (!snapshot.hasData) {
+                return const SizedBox(
+                  height: 220,
+                  child: Center(child: CircularProgressIndicator()),
+                );
+              }
+              final data = snapshot.data!;
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  SectionHeader('Events (${data.events.length})'),
+                  const SizedBox(height: 10),
+                  if (data.events.isEmpty)
+                    const Text('No published events yet.')
+                  else
+                    GridView.builder(
+                      shrinkWrap: true,
+                      physics: const NeverScrollableScrollPhysics(),
+                      gridDelegate:
+                          const SliverGridDelegateWithFixedCrossAxisCount(
+                        crossAxisCount: 3,
+                        crossAxisSpacing: 3,
+                        mainAxisSpacing: 3,
+                      ),
+                      itemCount: data.events.length,
+                      itemBuilder: (context, index) {
+                        final event = data.events[index];
+                        return InkWell(
+                          onTap: () => Navigator.push(
+                            context,
+                            MaterialPageRoute<void>(
+                              builder: (_) => EventDetailScreen(event: event),
+                            ),
+                          ),
+                          child: NetworkPicture(
+                            url: event['flyer_url'] as String?,
+                            width: double.infinity,
+                            height: double.infinity,
+                            borderRadius: 4,
+                          ),
+                        );
+                      },
+                    ),
+                  const SizedBox(height: 26),
+                  SectionHeader('Members (${data.members.length})'),
+                  const SizedBox(height: 8),
+                  ...data.members.map((membership) {
+                    final profile = membership['profiles'] as Map? ?? const {};
+                    final position =
+                        membership['club_positions'] as Map? ?? const {};
+                    return Card(
+                      margin: const EdgeInsets.only(bottom: 8),
+                      child: ListTile(
+                        leading: NetworkPicture(
+                          url: profile['avatar_url'] as String?,
+                          width: 48,
+                          height: 48,
+                          borderRadius: 24,
+                        ),
+                        title: Text('${profile['full_name'] ?? 'Member'}'),
+                        subtitle: Text(
+                            '${position['name'] ?? 'Member'} · ${profile['department'] ?? 'Campus'}'),
+                      ),
+                    );
+                  }),
+                ],
+              );
+            },
+          ),
         ],
       ),
     );
@@ -460,19 +622,33 @@ class _ClubDiscoverDetailScreenState extends State<ClubDiscoverDetailScreen> {
 }
 
 class _ClubStat extends StatelessWidget {
-  const _ClubStat({required this.value, required this.label});
+  const _ClubStat({required this.value, required this.label, this.onTap});
   final int? value;
   final String label;
+  final VoidCallback? onTap;
 
   @override
-  Widget build(BuildContext context) => Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(value == null ? '—' : '$value',
-              style: Theme.of(context).textTheme.titleLarge),
-          Text(label, style: Theme.of(context).textTheme.bodySmall),
-        ],
+  Widget build(BuildContext context) => InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
+        child: Padding(
+          padding: const EdgeInsets.all(4),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(value == null ? '—' : '$value',
+                  style: Theme.of(context).textTheme.titleLarge),
+              Text(label, style: Theme.of(context).textTheme.bodySmall),
+            ],
+          ),
+        ),
       );
+}
+
+class _ClubPublicData {
+  const _ClubPublicData({required this.events, required this.members});
+  final List<Map<String, dynamic>> events;
+  final List<Map<String, dynamic>> members;
 }
 
 class CreateClubScreen extends StatefulWidget {

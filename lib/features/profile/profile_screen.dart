@@ -222,9 +222,63 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       const SectionHeader('Event history'),
                       const SizedBox(height: 8),
                       _EventHistory(repo: repo),
+                      const SizedBox(height: 24),
+                      const SectionHeader('Events organized'),
+                      const SizedBox(height: 8),
+                      _OrganizedEvents(repo: repo),
                     ],
                   ),
                 ),
+    );
+  }
+}
+
+class _OrganizedEvents extends StatelessWidget {
+  const _OrganizedEvents({required this.repo});
+  final UniClubRepository repo;
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<List<Map<String, dynamic>>>(
+      future: repo.client
+          .from('events')
+          .select('*, clubs(name,logo_url,college_id)')
+          .eq('created_by', repo.userId)
+          .order('starts_at', ascending: false),
+      builder: (context, snapshot) {
+        if (snapshot.hasError) return AsyncErrorState(error: snapshot.error);
+        if (!snapshot.hasData) return const LinearProgressIndicator();
+        if (snapshot.data!.isEmpty) {
+          return const Text('Events you organize will appear here.');
+        }
+        return GridView.builder(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: 3,
+            crossAxisSpacing: 3,
+            mainAxisSpacing: 3,
+          ),
+          itemCount: snapshot.data!.length,
+          itemBuilder: (context, index) {
+            final event = snapshot.data![index];
+            return InkWell(
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute<void>(
+                  builder: (_) => EventDetailScreen(event: event),
+                ),
+              ),
+              child: NetworkPicture(
+                url: event['flyer_url'] as String?,
+                width: double.infinity,
+                height: double.infinity,
+                borderRadius: 4,
+              ),
+            );
+          },
+        );
+      },
     );
   }
 }

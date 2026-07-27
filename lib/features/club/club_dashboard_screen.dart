@@ -110,11 +110,6 @@ class _RoleManagementScreenState extends State<RoleManagementScreen> {
             .select()
             .eq('club_id', widget.club['id'])
             .order('rank'),
-        repo.client
-            .from('club_follows')
-            .select(
-                'user_id, profiles!club_follows_user_id_fkey(full_name,email,avatar_url)')
-            .eq('club_id', widget.club['id']),
       ]);
 
   Future<void> assign(String membershipId, String positionId) async {
@@ -305,115 +300,105 @@ class _RoleManagementScreenState extends State<RoleManagementScreen> {
               List<Map<String, dynamic>>.from(snapshot.data![0] as List);
           final positions =
               List<Map<String, dynamic>>.from(snapshot.data![1] as List);
-          final followers =
-              List<Map<String, dynamic>>.from(snapshot.data![2] as List);
           return ListView.builder(
             padding: const EdgeInsets.all(14),
-            itemCount: memberships.length + 1,
+            itemCount: memberships.length,
             itemBuilder: (context, index) {
-              if (index == memberships.length) {
-                return Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const SizedBox(height: 18),
-                    SectionHeader('Followers (${followers.length})'),
-                    const SizedBox(height: 8),
-                    if (followers.isEmpty)
-                      const Text('No followers yet.')
-                    else
-                      ...followers.map((row) {
-                        final user = Map<String, dynamic>.from(
-                            row['profiles'] as Map? ?? {});
-                        return ListTile(
-                          contentPadding: EdgeInsets.zero,
-                          leading: NetworkPicture(
-                              url: user['avatar_url'] as String?,
-                              width: 42,
-                              height: 42,
-                              borderRadius: 21),
-                          title: Text('${user['full_name'] ?? row['user_id']}'),
-                          subtitle: Text('${user['email'] ?? ''}'),
-                        );
-                      }),
-                  ],
-                );
-              }
               final membership = memberships[index];
               final user = Map<String, dynamic>.from(
                   membership['profiles'] as Map? ?? {});
               final isSelf = membership['user_id'] == repo.userId;
               return Card(
-                child: ListTile(
-                  leading: NetworkPicture(
-                      url: user['avatar_url'] as String?,
-                      width: 44,
-                      height: 44,
-                      borderRadius: 22),
-                  title: Text('${user['full_name'] ?? membership['user_id']}'),
-                  subtitle: Text(
-                      '${(membership['club_positions'] as Map?)?['name'] ?? 'Member'} · ${membership['status']}\n${user['department'] ?? 'Department not added'}${user['academic_year'] == null ? '' : ' · ${user['academic_year']}'}'),
-                  isThreeLine: true,
-                  onTap: () => _showMemberDetails(user, membership),
-                  trailing: !widget.canManage
-                      ? null
-                      : SizedBox(
-                          width: 170,
-                          child: Row(
-                            children: [
-                              if (membership['status'] == 'active')
-                                Expanded(
-                                  child: DropdownButton<String>(
-                                    value: membership['position_id'] as String?,
-                                    isExpanded: true,
-                                    hint: const Text('Role'),
-                                    onChanged: isSelf
-                                        ? null
-                                        : (value) {
-                                            if (value != null) {
-                                              assign(
-                                                  '${membership['id']}', value);
-                                            }
-                                          },
-                                    items: positions
-                                        .map((position) => DropdownMenuItem(
-                                            value: '${position['id']}',
-                                            child: Text(
-                                              '${position['name']}',
-                                              overflow: TextOverflow.ellipsis,
-                                            )))
-                                        .toList(),
+                margin: const EdgeInsets.only(bottom: 10),
+                child: Padding(
+                  padding: const EdgeInsets.all(14),
+                  child: Column(
+                    children: [
+                      Row(
+                        children: [
+                          NetworkPicture(
+                              url: user['avatar_url'] as String?,
+                              width: 54,
+                              height: 54,
+                              borderRadius: 27),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: InkWell(
+                              onTap: () => _showMemberDetails(user, membership),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                      '${user['full_name'] ?? membership['user_id']}',
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .titleMedium),
+                                  Text(
+                                    '${(membership['club_positions'] as Map?)?['name'] ?? 'Member'} · ${membership['status']}',
                                   ),
-                                ),
-                              if (membership['status'] != 'active')
-                                Expanded(
-                                  child: PopupMenuButton<String>(
-                                    tooltip: 'Review request',
-                                    onSelected: (value) =>
-                                        decideMembership(membership, value),
-                                    itemBuilder: (_) => const [
-                                      PopupMenuItem(
-                                          value: 'active',
-                                          child: Text('Accept')),
-                                      PopupMenuItem(
-                                          value: 'waitlisted',
-                                          child: Text('Waitlist')),
-                                      PopupMenuItem(
-                                          value: 'rejected',
-                                          child: Text('Reject')),
-                                    ],
-                                    child: const Text('Review'),
+                                  Text(
+                                    '${user['department'] ?? 'Department not added'}${user['academic_year'] == null ? '' : ' · ${user['academic_year']}'}',
+                                    style:
+                                        Theme.of(context).textTheme.bodySmall,
                                   ),
-                                ),
-                              IconButton(
-                                tooltip: 'Remove member',
-                                onPressed: isSelf
-                                    ? null
-                                    : () => removeMember('${membership['id']}'),
-                                icon: const Icon(Icons.person_remove_outlined),
+                                ],
                               ),
-                            ],
+                            ),
                           ),
+                        ],
+                      ),
+                      if (widget.canManage && !isSelf) ...[
+                        const SizedBox(height: 12),
+                        Row(
+                          children: [
+                            if (membership['status'] == 'active')
+                              Expanded(
+                                child: OutlinedButton.icon(
+                                  onPressed: () async {
+                                    final positionId =
+                                        await _choosePosition(positions);
+                                    if (positionId != null) {
+                                      await assign(
+                                          '${membership['id']}', positionId);
+                                    }
+                                  },
+                                  icon: const Icon(Icons.edit_outlined),
+                                  label: const Text('Edit position'),
+                                ),
+                              )
+                            else
+                              Expanded(
+                                child: PopupMenuButton<String>(
+                                  onSelected: (value) =>
+                                      decideMembership(membership, value),
+                                  itemBuilder: (_) => const [
+                                    PopupMenuItem(
+                                        value: 'active', child: Text('Accept')),
+                                    PopupMenuItem(
+                                        value: 'waitlisted',
+                                        child: Text('Waitlist')),
+                                    PopupMenuItem(
+                                        value: 'rejected',
+                                        child: Text('Reject')),
+                                  ],
+                                  child: const OutlinedButton(
+                                    onPressed: null,
+                                    child: Text('Review request'),
+                                  ),
+                                ),
+                              ),
+                            const SizedBox(width: 8),
+                            IconButton.filledTonal(
+                              tooltip: 'Remove member',
+                              onPressed: () =>
+                                  removeMember('${membership['id']}'),
+                              icon: const Icon(Icons.person_remove_outlined),
+                            ),
+                          ],
                         ),
+                      ],
+                    ],
+                  ),
                 ),
               );
             },
@@ -581,6 +566,55 @@ class _Overview extends StatefulWidget {
 class _OverviewState extends State<_Overview> {
   final repo = UniClubRepository();
 
+  Future<void> showFollowers() async {
+    final rows = List<Map<String, dynamic>>.from(await repo.client
+        .from('club_follows')
+        .select(
+            'user_id, profiles!club_follows_user_id_fkey(full_name,username,avatar_url,department)')
+        .eq('club_id', widget.club['id'])
+        .order('created_at', ascending: false));
+    if (!mounted) return;
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (context) => DraggableScrollableSheet(
+        expand: false,
+        initialChildSize: .65,
+        builder: (context, controller) => Column(
+          children: [
+            const ListTile(title: Text('Club followers')),
+            Expanded(
+              child: rows.isEmpty
+                  ? const EmptyState(
+                      icon: Icons.people_outline,
+                      title: 'No followers yet',
+                    )
+                  : ListView.builder(
+                      controller: controller,
+                      itemCount: rows.length,
+                      itemBuilder: (context, index) {
+                        final profile =
+                            rows[index]['profiles'] as Map? ?? const {};
+                        return ListTile(
+                          leading: NetworkPicture(
+                            url: profile['avatar_url'] as String?,
+                            width: 46,
+                            height: 46,
+                            borderRadius: 23,
+                          ),
+                          title: Text('${profile['full_name'] ?? 'Student'}'),
+                          subtitle: Text(
+                              '@${profile['username'] ?? 'member'} · ${profile['department'] ?? 'Campus'}'),
+                        );
+                      },
+                    ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Future<List<Map<String, dynamic>>> joinRequests() async => List<
       Map<String,
           dynamic>>.from(await repo
@@ -714,13 +748,22 @@ class _OverviewState extends State<_Overview> {
               child: Row(
                 children: snapshot.data!.entries
                     .map((entry) => Expanded(
-                          child: Column(
-                            children: [
-                              Text('${entry.value}',
-                                  style:
-                                      Theme.of(context).textTheme.titleLarge),
-                              Text(entry.key),
-                            ],
+                          child: InkWell(
+                            onTap:
+                                entry.key == 'Followers' ? showFollowers : null,
+                            borderRadius: BorderRadius.circular(12),
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(vertical: 8),
+                              child: Column(
+                                children: [
+                                  Text('${entry.value}',
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .titleLarge),
+                                  Text(entry.key),
+                                ],
+                              ),
+                            ),
                           ),
                         ))
                     .toList(),

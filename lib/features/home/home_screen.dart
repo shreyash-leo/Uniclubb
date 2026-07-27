@@ -375,11 +375,14 @@ class _PostCard extends StatelessWidget {
             ),
           ),
           if (mediaUrl != null)
-            NetworkPicture(
-              url: mediaUrl,
-              width: double.infinity,
-              height: 280,
-              borderRadius: 0,
+            AspectRatio(
+              aspectRatio: 4 / 5,
+              child: NetworkPicture(
+                url: mediaUrl,
+                width: double.infinity,
+                height: double.infinity,
+                borderRadius: 0,
+              ),
             ),
           if ('${post['body'] ?? ''}'.isNotEmpty)
             Padding(
@@ -395,7 +398,7 @@ class _PostCard extends StatelessWidget {
                   onPressed: onLike,
                   icon: Icon(
                     liked ? Icons.favorite : Icons.favorite_border,
-                    color: liked ? Colors.red : null,
+                    color: liked ? Theme.of(context).colorScheme.primary : null,
                   ),
                 ),
                 Text('${likes.length}'),
@@ -405,6 +408,7 @@ class _PostCard extends StatelessWidget {
                   icon: const Icon(Icons.chat_bubble_outline),
                 ),
                 Text('$comments'),
+                const Spacer(),
                 IconButton(
                   tooltip: 'Share',
                   onPressed: () => SharePlus.instance.share(
