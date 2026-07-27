@@ -252,6 +252,7 @@ class UniClubRepository {
   Future<void> sendMessage({
     required String conversationId,
     required String body,
+    Map<String, dynamic>? attachment,
   }) =>
       client.from('messages').insert({
         // A client-generated primary key makes retries and realtime
@@ -260,7 +261,98 @@ class UniClubRepository {
         'conversation_id': conversationId,
         'sender_id': userId,
         'body': body,
+        if (attachment != null) 'attachment': attachment,
       });
+
+  Future<Set<String>> savedEventIds() async {
+    final rows = List<Map<String, dynamic>>.from(await client
+        .from('saved_events')
+        .select('event_id')
+        .eq('user_id', userId));
+    return rows.map((row) => '${row['event_id']}').toSet();
+  }
+
+  Future<void> setEventSaved(String eventId, bool saved) async {
+    if (saved) {
+      await client.from('saved_events').upsert(
+        {'user_id': userId, 'event_id': eventId},
+        onConflict: 'user_id,event_id',
+        ignoreDuplicates: true,
+      );
+    } else {
+      await client
+          .from('saved_events')
+          .delete()
+          .eq('user_id', userId)
+          .eq('event_id', eventId);
+    }
+  }
+
+  Future<List<Map<String, dynamic>>> savedEvents() async {
+    final rows = List<Map<String, dynamic>>.from(await client
+        .from('saved_events')
+        .select('created_at, events(*, clubs(name,logo_url,college_id))')
+        .eq('user_id', userId)
+        .order('created_at', ascending: false));
+    return rows
+        .map((row) => Map<String, dynamic>.from(row['events'] as Map? ?? {}))
+        .where((event) => event.isNotEmpty)
+        .toList(growable: false);
+  }
+
+  Future<List<Map<String, dynamic>>> directShareTargets() async {
+    final rows = List<Map<String, dynamic>>.from(await client
+        .from('conversation_members')
+        .select(
+          'conversation_id, conversations!inner(kind, '
+          'conversation_members!conversation_members_conversation_id_fkey('
+          'user_id, profiles!conversation_members_user_id_fkey('
+          'full_name,avatar_url)))',
+        )
+        .eq('user_id', userId)
+        .eq('conversations.kind', 'direct'));
+    final allowed = await sharedClubMemberIds();
+    final targets = <Map<String, dynamic>>[];
+    for (final row in rows) {
+      final conversation = row['conversations'] as Map? ?? const {};
+      final members = conversation['conversation_members'] as List? ?? const [];
+      for (final value in members) {
+        final member = value as Map? ?? const {};
+        final targetId = '${member['user_id']}';
+        if (targetId == userId || !allowed.contains(targetId)) continue;
+        final profile = member['profiles'] as Map? ?? const {};
+        targets.add({
+          'conversation_id': row['conversation_id'],
+          'user_id': targetId,
+          'name': profile['full_name'] ?? 'Club member',
+          'avatar_url': profile['avatar_url'],
+        });
+        break;
+      }
+    }
+    return targets;
+  }
+
+  Future<void> shareEventToConversations(
+    Map<String, dynamic> event,
+    Iterable<String> conversationIds,
+  ) async {
+    final club = event['clubs'] as Map? ?? const {};
+    final attachment = <String, dynamic>{
+      'type': 'event',
+      'event_id': event['id'],
+      'title': event['title'],
+      'flyer_url': event['flyer_url'],
+      'starts_at': event['starts_at'],
+      'venue_name': event['venue_name'],
+      'club_name': club['name'],
+    };
+    await Future.wait(conversationIds.map((conversationId) => sendMessage(
+          conversationId: conversationId,
+          body: 'Shared an event',
+          attachment: attachment,
+        )));
+  }
 
   Future<List<Map<String, dynamic>>> myMemberships() async =>
       List<Map<String, dynamic>>.from(await client
@@ -269,12 +361,14 @@ class UniClubRepository {
           .eq('user_id', userId)
           .eq('status', 'active'));
 
-  Future<List<Map<String, dynamic>>> myRegistrations() async =>
-      List<Map<String, dynamic>>.from(await client
-          .from('event_registrations')
-          .select('*, events(*), event_ticket_types(*)')
-          .eq('user_id', userId)
-          .order('registered_at', ascending: false));
+  Future<List<Map<String, dynamic>>> myRegistrations() async => List<
+      Map<String,
+          dynamic>>.from(await client
+      .from('event_registrations')
+      .select(
+          '*, events(*, clubs(name,logo_url,college_id)), event_ticket_types(*)')
+      .eq('user_id', userId)
+      .order('registered_at', ascending: false));
 
   Future<String> upload({
     required String bucket,

@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../../core/supabase/uniclub_repository.dart';
+import '../../shared/event_post_card.dart';
 import '../../shared/notification_action.dart';
 import '../../shared/widgets.dart';
 import '../club/clubs_hub_screen.dart';
@@ -647,23 +648,12 @@ class _DiscoverLanding extends StatelessWidget {
             if (events.isEmpty)
               const Text('No upcoming events in this category.')
             else
-              ...events.map((event) => Card(
-                    margin: const EdgeInsets.only(bottom: 10),
-                    child: ListTile(
-                      leading: NetworkPicture(
-                        url: event['flyer_url'] as String?,
-                        width: 58,
-                        height: 58,
-                        borderRadius: 12,
-                      ),
-                      title: Text('${event['title']}'),
-                      subtitle: Text(formatDate(event['starts_at'])),
-                      trailing: const Icon(Icons.chevron_right),
-                      onTap: () => Navigator.push(
-                        context,
-                        MaterialPageRoute<void>(
-                            builder: (_) => EventDetailScreen(event: event)),
-                      ),
+              ...events.map((event) => EventPostCard(
+                    event: event,
+                    onTap: () => Navigator.push(
+                      context,
+                      MaterialPageRoute<void>(
+                          builder: (_) => EventDetailScreen(event: event)),
                     ),
                   )),
           ],

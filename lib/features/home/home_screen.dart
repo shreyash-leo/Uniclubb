@@ -4,11 +4,11 @@ import 'package:share_plus/share_plus.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../core/supabase/uniclub_repository.dart';
+import '../../shared/event_post_card.dart';
 import '../../shared/notification_action.dart';
 import '../../shared/widgets.dart';
 import '../club/clubs_hub_screen.dart';
 import '../event/event_detail_screen.dart';
-import '../event/events_hub_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -22,39 +22,36 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return DefaultTabController(
-      length: 3,
-      child: Scaffold(
-        appBar: AppBar(
-          title: const Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('UniClub'),
-              Text(
-                'Your campus feed',
-                style: TextStyle(fontSize: 12, fontWeight: FontWeight.w400),
-              ),
-            ],
-          ),
-          actions: const [NotificationAction()],
-          bottom: const TabBar(
-            tabs: [
-              Tab(text: 'Feed'),
-              Tab(text: 'Events'),
-              Tab(text: 'Hackathons'),
-            ],
-          ),
-        ),
-        body: TabBarView(
+    return Scaffold(
+      appBar: AppBar(
+        title: const Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            _HomeFeed(repo: repo),
-            const PublishedEventsView(types: ['event', 'workshop', 'meetup']),
-            const PublishedEventsView(types: ['hackathon', 'competition']),
+            Text('UniClub'),
+            Text(
+              'Your campus feed',
+              style: TextStyle(fontSize: 12, fontWeight: FontWeight.w400),
+            ),
           ],
         ),
+        actions: const [NotificationAction()],
       ),
+      body: _HomeFeed(repo: repo),
     );
   }
+}
+
+class _FeedData {
+  const _FeedData({required this.posts, required this.events});
+  final List<Map<String, dynamic>> posts;
+  final List<Map<String, dynamic>> events;
+}
+
+class _FeedEntry {
+  const _FeedEntry.post(this.value) : isEvent = false;
+  const _FeedEntry.event(this.value) : isEvent = true;
+  final Map<String, dynamic> value;
+  final bool isEvent;
 }
 
 class _HomeFeed extends StatefulWidget {
@@ -66,10 +63,43 @@ class _HomeFeed extends StatefulWidget {
 }
 
 class _HomeFeedState extends State<_HomeFeed> {
-  late Future<List<Map<String, dynamic>>> future = widget.repo.homeFeedPosts();
+  late Future<_FeedData> future = load();
+
+  Future<_FeedData> load() async {
+    final values = await Future.wait<dynamic>([
+      widget.repo.homeFeedPosts(),
+      widget.repo.recommendedEvents(limit: 30),
+    ]);
+    return _FeedData(
+      posts: List<Map<String, dynamic>>.from(values[0] as List),
+      events: List<Map<String, dynamic>>.from(values[1] as List),
+    );
+  }
+
+  List<_FeedEntry> mixedFeed(_FeedData data) {
+    final posts = [...data.posts];
+    final events = [...data.events];
+    final result = <_FeedEntry>[];
+    var postIndex = 0;
+    var eventIndex = 0;
+    while (postIndex < posts.length || eventIndex < events.length) {
+      for (var count = 0; count < 3 && postIndex < posts.length; count++) {
+        result.add(_FeedEntry.post(posts[postIndex++]));
+      }
+      if (eventIndex < events.length) {
+        result.add(_FeedEntry.event(events[eventIndex++]));
+      }
+      if (postIndex >= posts.length) {
+        while (eventIndex < events.length) {
+          result.add(_FeedEntry.event(events[eventIndex++]));
+        }
+      }
+    }
+    return result;
+  }
 
   Future<void> refresh() async {
-    final next = widget.repo.homeFeedPosts();
+    final next = load();
     setState(() {
       future = next;
     });
@@ -144,7 +174,7 @@ class _HomeFeedState extends State<_HomeFeed> {
 
   @override
   Widget build(BuildContext context) {
-    return FutureBuilder<List<Map<String, dynamic>>>(
+    return FutureBuilder<_FeedData>(
       future: future,
       builder: (context, snapshot) {
         if (snapshot.hasError) {
@@ -153,7 +183,7 @@ class _HomeFeedState extends State<_HomeFeed> {
         if (!snapshot.hasData) {
           return const SkeletonList();
         }
-        final posts = snapshot.data!;
+        final feed = mixedFeed(snapshot.data!);
         return RefreshIndicator(
           onRefresh: refresh,
           child: ListView(
@@ -162,15 +192,28 @@ class _HomeFeedState extends State<_HomeFeed> {
             children: [
               const _StoryStrip(),
               const SizedBox(height: 12),
-              if (posts.isEmpty)
+              if (feed.isEmpty)
                 _HomeEventFallback(repo: widget.repo)
               else
-                ...posts.map((post) => _PostCard(
-                      post: post,
-                      currentUserId: widget.repo.userId,
-                      onLike: () => toggleLike(post),
-                      onComment: () => comment(post),
-                    )),
+                ...feed.map((entry) {
+                  if (entry.isEvent) {
+                    return EventPostCard(
+                      event: entry.value,
+                      onTap: () => Navigator.push(
+                        context,
+                        MaterialPageRoute<void>(
+                          builder: (_) => EventDetailScreen(event: entry.value),
+                        ),
+                      ),
+                    );
+                  }
+                  return _PostCard(
+                    post: entry.value,
+                    currentUserId: widget.repo.userId,
+                    onLike: () => toggleLike(entry.value),
+                    onComment: () => comment(entry.value),
+                  );
+                }),
             ],
           ),
         );
@@ -178,6 +221,12 @@ class _HomeFeedState extends State<_HomeFeed> {
     );
   }
 }
+
+/*
+ * Feed ranking is intentionally kept server/data driven in the repository:
+ * followed clubs receive priority, trending campus posts are interleaved, and
+ * upcoming campus events ensure the feed remains useful for new users.
+ */
 
 class _HomeEventFallback extends StatelessWidget {
   const _HomeEventFallback({required this.repo});
@@ -463,30 +512,82 @@ class _StoryStripState extends State<_StoryStrip> {
     final picked = await ImagePicker()
         .pickImage(source: ImageSource.gallery, imageQuality: 82);
     if (picked == null || !mounted) return;
+    final bytes = await picked.readAsBytes();
+    if (!mounted) return;
     final captionController = TextEditingController();
     final caption = await showDialog<String>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Add to story'),
-        content: TextField(
-          controller: captionController,
-          autofocus: true,
-          maxLength: 180,
-          textCapitalization: TextCapitalization.sentences,
-          decoration:
-              const InputDecoration(hintText: 'Add a caption (optional)'),
+      barrierColor: Colors.black,
+      builder: (context) => Dialog.fullscreen(
+        backgroundColor: Colors.black,
+        child: SafeArea(
+          child: Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 6),
+                child: Row(
+                  children: [
+                    IconButton(
+                      onPressed: () => Navigator.pop(context),
+                      color: Colors.white,
+                      icon: const Icon(Icons.close),
+                    ),
+                    const Expanded(
+                      child: Text(
+                        'Story preview',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 17,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                    FilledButton.icon(
+                      onPressed: () =>
+                          Navigator.pop(context, captionController.text.trim()),
+                      icon: const Icon(Icons.send, size: 18),
+                      label: const Text('Share'),
+                    ),
+                  ],
+                ),
+              ),
+              Expanded(
+                child: Center(
+                  child: Image.memory(
+                    bytes,
+                    width: double.infinity,
+                    fit: BoxFit.contain,
+                  ),
+                ),
+              ),
+              Padding(
+                padding: EdgeInsets.fromLTRB(
+                  16,
+                  10,
+                  16,
+                  MediaQuery.viewInsetsOf(context).bottom + 14,
+                ),
+                child: TextField(
+                  controller: captionController,
+                  maxLength: 180,
+                  style: const TextStyle(color: Colors.white),
+                  textCapitalization: TextCapitalization.sentences,
+                  decoration: InputDecoration(
+                    hintText: 'Write a caption…',
+                    hintStyle: const TextStyle(color: Colors.white70),
+                    counterStyle: const TextStyle(color: Colors.white70),
+                    filled: true,
+                    fillColor: Colors.white.withValues(alpha: .14),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(24),
+                      borderSide: BorderSide.none,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () =>
-                Navigator.pop(context, captionController.text.trim()),
-            child: const Text('Share story'),
-          ),
-        ],
       ),
     );
     await disposeTextControllersAfterRoute([captionController]);
@@ -495,7 +596,7 @@ class _StoryStripState extends State<_StoryStrip> {
       final clubId = '${club['club_id']}';
       final url = await repo.upload(
         bucket: 'event-media',
-        bytes: await picked.readAsBytes(),
+        bytes: bytes,
         extension: picked.name.split('.').last.toLowerCase(),
         folder: 'stories/$clubId',
       );

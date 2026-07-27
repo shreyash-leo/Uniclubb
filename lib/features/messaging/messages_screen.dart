@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/supabase/uniclub_repository.dart';
 import '../../shared/widgets.dart';
+import '../event/event_detail_screen.dart';
 
 class MessagesScreen extends StatefulWidget {
   const MessagesScreen({super.key, this.embedded = false});
@@ -14,14 +15,13 @@ class MessagesScreen extends StatefulWidget {
 
 class _MessagesScreenState extends State<MessagesScreen> {
   final repo = UniClubRepository();
-  final filterController = TextEditingController();
   String filter = '';
 
   Future<List<Map<String, dynamic>>> conversations() async {
     final rows = List<Map<String, dynamic>>.from(await repo.client
         .from('conversation_members')
         .select(
-          '*, conversations(*, '
+          '*, conversations(*, clubs(name,logo_url), '
           'conversation_members!conversation_members_conversation_id_fkey('
           'user_id, profiles!conversation_members_user_id_fkey('
           'full_name,avatar_url)))',
@@ -65,6 +65,58 @@ class _MessagesScreenState extends State<MessagesScreen> {
     }
   }
 
+  Future<void> openFilter() async {
+    var draft = filter;
+    final value = await showModalBottomSheet<String>(
+      context: context,
+      isScrollControlled: true,
+      builder: (context) => Padding(
+        padding: EdgeInsets.fromLTRB(
+          16,
+          16,
+          16,
+          MediaQuery.viewInsetsOf(context).bottom + 16,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Filter conversations',
+                style: Theme.of(context).textTheme.titleMedium),
+            const SizedBox(height: 12),
+            TextFormField(
+              initialValue: filter,
+              autofocus: true,
+              decoration: const InputDecoration(
+                hintText: 'Name or club',
+                prefixIcon: Icon(Icons.search),
+              ),
+              onChanged: (value) => draft = value,
+              onFieldSubmitted: (value) => Navigator.pop(context, value.trim()),
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context, ''),
+                  child: const Text('Clear'),
+                ),
+                const Spacer(),
+                FilledButton(
+                  onPressed: () => Navigator.pop(context, draft.trim()),
+                  child: const Text('Apply'),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+    if (value != null && mounted) {
+      setState(() => filter = value);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final content = FutureBuilder<List<Map<String, dynamic>>>(
@@ -96,6 +148,8 @@ class _MessagesScreenState extends State<MessagesScreen> {
       },
     );
     final tabs = TabBar(
+      isScrollable: true,
+      tabAlignment: TabAlignment.start,
       dividerColor: Colors.transparent,
       indicatorSize: TabBarIndicatorSize.tab,
       indicator: BoxDecoration(
@@ -104,38 +158,36 @@ class _MessagesScreenState extends State<MessagesScreen> {
       ),
       labelColor: Theme.of(context).colorScheme.onPrimaryContainer,
       unselectedLabelColor: Theme.of(context).colorScheme.onSurfaceVariant,
+      labelPadding: const EdgeInsets.symmetric(horizontal: 14),
       tabs: const [
-        Tab(text: 'Direct messages'),
-        Tab(text: 'Club chats'),
+        Tab(height: 36, text: 'Direct messages'),
+        Tab(height: 36, text: 'Club chats'),
       ],
     );
-    final search = Padding(
+    final controls = Padding(
       padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
-      child: TextField(
-        controller: filterController,
-        onChanged: (value) => setState(() => filter = value.trim()),
-        decoration: InputDecoration(
-          hintText: 'Filter conversations',
-          prefixIcon: const Icon(Icons.search),
-          suffixIcon: filter.isEmpty
-              ? const Icon(Icons.filter_list)
-              : IconButton(
-                  tooltip: 'Clear filter',
-                  onPressed: () {
-                    filterController.clear();
-                    setState(() => filter = '');
-                  },
-                  icon: const Icon(Icons.close),
-                ),
-        ),
+      child: Row(
+        children: [
+          Expanded(child: tabs),
+          const SizedBox(width: 8),
+          ActionChip(
+            avatar: Icon(
+              filter.isEmpty ? Icons.filter_list : Icons.filter_alt,
+              size: 17,
+            ),
+            label: Text(filter.isEmpty ? 'Filter' : 'Filtered'),
+            onPressed: openFilter,
+            side: BorderSide(
+              color: Theme.of(context).colorScheme.outlineVariant,
+            ),
+          ),
+        ],
       ),
     );
     return DefaultTabController(
       length: 2,
       child: Scaffold(
-        appBar: widget.embedded
-            ? null
-            : AppBar(title: const Text('Messages'), bottom: tabs),
+        appBar: widget.embedded ? null : AppBar(title: const Text('Messages')),
         floatingActionButton: FloatingActionButton(
             heroTag: 'messages-compose',
             onPressed: startDirect,
@@ -143,17 +195,13 @@ class _MessagesScreenState extends State<MessagesScreen> {
         body: widget.embedded
             ? Column(
                 children: [
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
-                    child: tabs,
-                  ),
-                  search,
+                  controls,
                   Expanded(child: content),
                 ],
               )
             : Column(
                 children: [
-                  search,
+                  controls,
                   Expanded(child: content),
                 ],
               ),
@@ -173,7 +221,7 @@ class _MessagesScreenState extends State<MessagesScreen> {
       final peer = _directPeer(conversation);
       final title = kind == 'direct'
           ? '${peer?['full_name'] ?? 'Club member'}'
-          : '${conversation['title'] ?? ''}';
+          : '${_club(conversation)?['name'] ?? conversation['title'] ?? ''}';
       return filter.isEmpty ||
           title.toLowerCase().contains(filter.toLowerCase());
     }).toList(growable: false);
@@ -193,7 +241,7 @@ class _MessagesScreenState extends State<MessagesScreen> {
         final peer = _directPeer(conversation);
         final title = kind == 'direct'
             ? '${peer?['full_name'] ?? 'Club member'}'
-            : '${conversation['title'] ?? _kind(conversation['kind'])}';
+            : '${_club(conversation)?['name'] ?? conversation['title'] ?? _kind(conversation['kind'])}';
         return Card(
           margin: const EdgeInsets.only(bottom: 8),
           child: ListTile(
@@ -204,7 +252,12 @@ class _MessagesScreenState extends State<MessagesScreen> {
                     height: 44,
                     borderRadius: 22,
                   )
-                : const CircleAvatar(child: Icon(Icons.groups_outlined)),
+                : NetworkPicture(
+                    url: _club(conversation)?['logo_url'] as String?,
+                    width: 44,
+                    height: 44,
+                    borderRadius: 22,
+                  ),
             title: Text(title),
             subtitle: Text(kind == 'club' ? 'Club chat' : 'Direct message'),
             trailing: const Icon(Icons.chevron_right),
@@ -236,10 +289,9 @@ class _MessagesScreenState extends State<MessagesScreen> {
     return null;
   }
 
-  @override
-  void dispose() {
-    filterController.dispose();
-    super.dispose();
+  Map<String, dynamic>? _club(Map<dynamic, dynamic> conversation) {
+    final value = conversation['clubs'];
+    return value is Map ? Map<String, dynamic>.from(value) : null;
   }
 }
 
@@ -380,6 +432,25 @@ class _ConversationScreenState extends State<ConversationScreen> {
     }
   }
 
+  Future<void> openSharedEvent(Map<String, dynamic> attachment) async {
+    try {
+      final event = Map<String, dynamic>.from(await repo.client
+          .from('events')
+          .select('*, clubs(name,logo_url,college_id)')
+          .eq('id', attachment['event_id'])
+          .single());
+      if (!mounted) return;
+      await Navigator.push(
+        context,
+        MaterialPageRoute<void>(
+          builder: (_) => EventDetailScreen(event: event),
+        ),
+      );
+    } catch (error) {
+      if (mounted) showErrorSnackBar(context, error);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -417,6 +488,11 @@ class _ConversationScreenState extends State<ConversationScreen> {
                   itemBuilder: (_, index) {
                     final row = messages[index];
                     final mine = row['sender_id'] == repo.userId;
+                    final attachment = row['attachment'] is Map
+                        ? Map<String, dynamic>.from(row['attachment'] as Map)
+                        : null;
+                    final sharedEvent =
+                        attachment?['type'] == 'event' ? attachment : null;
                     return Align(
                       alignment:
                           mine ? Alignment.centerRight : Alignment.centerLeft,
@@ -435,7 +511,13 @@ class _ConversationScreenState extends State<ConversationScreen> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.end,
                           children: [
-                            Text('${row['body'] ?? ''}'),
+                            if (sharedEvent != null)
+                              _SharedEventMessage(
+                                attachment: sharedEvent,
+                                onTap: () => openSharedEvent(sharedEvent),
+                              )
+                            else
+                              Text('${row['body'] ?? ''}'),
                             const SizedBox(height: 3),
                             Text(
                               _messageTime(row['created_at']),
@@ -489,6 +571,59 @@ class _ConversationScreenState extends State<ConversationScreen> {
     controller.dispose();
     scrollController.dispose();
     super.dispose();
+  }
+}
+
+class _SharedEventMessage extends StatelessWidget {
+  const _SharedEventMessage({
+    required this.attachment,
+    required this.onTap,
+  });
+
+  final Map<String, dynamic> attachment;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: SizedBox(
+        width: 250,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            NetworkPicture(
+              url: attachment['flyer_url'] as String?,
+              width: 250,
+              height: 145,
+              borderRadius: 12,
+            ),
+            const SizedBox(height: 9),
+            Text(
+              '${attachment['title'] ?? 'Campus event'}',
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.titleSmall,
+            ),
+            const SizedBox(height: 3),
+            Text(
+              '${attachment['club_name'] ?? 'UniClub'} · ${formatDate(attachment['starts_at'])}',
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+            const SizedBox(height: 5),
+            Text(
+              '${attachment['venue_name'] ?? 'Venue to be announced'}',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }
 

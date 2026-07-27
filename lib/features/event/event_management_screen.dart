@@ -8,6 +8,7 @@ import 'package:share_plus/share_plus.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../core/supabase/uniclub_repository.dart';
+import '../../shared/event_post_card.dart';
 import '../../shared/widgets.dart';
 import 'event_detail_screen.dart';
 
@@ -159,72 +160,66 @@ class _EventManagementScreenState extends State<EventManagementScreen> {
             itemCount: snapshot.data!.length,
             itemBuilder: (context, index) {
               final event = snapshot.data![index];
-              return Padding(
-                padding: const EdgeInsets.only(bottom: 10),
-                child: Card(
-                  child: ListTile(
-                    leading: NetworkPicture(
-                        url: event['flyer_url'] as String?,
-                        width: 56,
-                        height: 56,
-                        borderRadius: 12),
-                    title: Text('${event['title']}'),
-                    subtitle: Text(
-                        '${formatDate(event['starts_at'])} · ${event['status']}'),
-                    trailing: PopupMenuButton<String>(
-                      onSelected: (value) async {
-                        if (value == 'details') {
-                          Navigator.push(
-                              context,
-                              MaterialPageRoute<void>(
-                                  builder: (_) =>
-                                      EventDetailScreen(event: event)));
-                        } else if (value == 'registrations') {
-                          Navigator.push(
-                              context,
-                              MaterialPageRoute<void>(
-                                  builder: (_) =>
-                                      RegistrationAdminScreen(event: event)));
-                        } else if (value == 'attendance') {
-                          Navigator.push(
-                              context,
-                              MaterialPageRoute<void>(
-                                  builder: (_) =>
-                                      AttendanceAdminScreen(event: event)));
-                        } else if (value == 'announcement') {
-                          await announceEvent(event);
-                        } else if (value == 'registration_toggle') {
-                          await toggleRegistration(event);
-                        } else if (value == 'delete') {
-                          await deleteEvent(event);
-                        }
-                      },
-                      itemBuilder: (_) => [
-                        const PopupMenuItem(
-                            value: 'details', child: Text('Details')),
-                        if (widget.canManage)
-                          PopupMenuItem(
-                              value: 'registration_toggle',
-                              child: Text(event['registration_enabled'] == false
-                                  ? 'Turn registration on'
-                                  : 'Turn registration off')),
-                        if (widget.canManage)
-                          const PopupMenuItem(
-                              value: 'registrations',
-                              child: Text('Registrations')),
-                        if (widget.canManage)
-                          const PopupMenuItem(
-                              value: 'attendance', child: Text('Attendance')),
-                        if (widget.canManage)
-                          const PopupMenuItem(
-                              value: 'announcement',
-                              child: Text('Event announcement')),
-                        if (widget.canManage)
-                          const PopupMenuItem(
-                              value: 'delete', child: Text('Delete event')),
-                      ],
-                    ),
+              final eventWithClub = {...event, 'clubs': widget.club};
+              return EventPostCard(
+                event: eventWithClub,
+                status: '${event['status']}',
+                onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute<void>(
+                    builder: (_) => EventDetailScreen(event: eventWithClub),
                   ),
+                ),
+                headerTrailing: PopupMenuButton<String>(
+                  onSelected: (value) async {
+                    if (value == 'details') {
+                      Navigator.push(
+                          context,
+                          MaterialPageRoute<void>(
+                              builder: (_) => EventDetailScreen(event: event)));
+                    } else if (value == 'registrations') {
+                      Navigator.push(
+                          context,
+                          MaterialPageRoute<void>(
+                              builder: (_) =>
+                                  RegistrationAdminScreen(event: event)));
+                    } else if (value == 'attendance') {
+                      Navigator.push(
+                          context,
+                          MaterialPageRoute<void>(
+                              builder: (_) =>
+                                  AttendanceAdminScreen(event: event)));
+                    } else if (value == 'announcement') {
+                      await announceEvent(event);
+                    } else if (value == 'registration_toggle') {
+                      await toggleRegistration(event);
+                    } else if (value == 'delete') {
+                      await deleteEvent(event);
+                    }
+                  },
+                  itemBuilder: (_) => [
+                    const PopupMenuItem(
+                        value: 'details', child: Text('Details')),
+                    if (widget.canManage)
+                      PopupMenuItem(
+                          value: 'registration_toggle',
+                          child: Text(event['registration_enabled'] == false
+                              ? 'Turn registration on'
+                              : 'Turn registration off')),
+                    if (widget.canManage)
+                      const PopupMenuItem(
+                          value: 'registrations', child: Text('Registrations')),
+                    if (widget.canManage)
+                      const PopupMenuItem(
+                          value: 'attendance', child: Text('Attendance')),
+                    if (widget.canManage)
+                      const PopupMenuItem(
+                          value: 'announcement',
+                          child: Text('Event announcement')),
+                    if (widget.canManage)
+                      const PopupMenuItem(
+                          value: 'delete', child: Text('Delete event')),
+                  ],
                 ),
               );
             },

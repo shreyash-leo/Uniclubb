@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/supabase/uniclub_repository.dart';
 import '../../shared/notification_action.dart';
+import '../../shared/event_post_card.dart';
 import '../../shared/widgets.dart';
 import 'event_detail_screen.dart';
 
@@ -84,44 +85,12 @@ class _PublishedEventsState extends State<PublishedEventsView> {
             separatorBuilder: (_, __) => const SizedBox(height: 10),
             itemBuilder: (context, index) {
               final event = snapshot.data![index];
-              final club = event['clubs'] as Map<String, dynamic>? ?? const {};
-              return Card(
-                clipBehavior: Clip.antiAlias,
-                child: InkWell(
-                  onTap: () => Navigator.push(
-                    context,
-                    MaterialPageRoute<void>(
-                      builder: (_) => EventDetailScreen(event: event),
-                    ),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      NetworkPicture(
-                        url: event['flyer_url'] as String?,
-                        width: double.infinity,
-                        height: 176,
-                        borderRadius: 0,
-                      ),
-                      Padding(
-                        padding: const EdgeInsets.all(14),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text('${event['title']}',
-                                style: Theme.of(context).textTheme.titleMedium),
-                            const SizedBox(height: 5),
-                            Text(
-                                '${club['name'] ?? 'Campus'} · ${formatDate(event['starts_at'])}'),
-                            const SizedBox(height: 4),
-                            Text(
-                              '${event['venue_name'] ?? 'Venue to be announced'}',
-                              style: Theme.of(context).textTheme.bodySmall,
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
+              return EventPostCard(
+                event: event,
+                onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute<void>(
+                    builder: (_) => EventDetailScreen(event: event),
                   ),
                 ),
               );
@@ -178,26 +147,17 @@ class _JoinedEventsState extends State<_JoinedEvents> {
               final registration = snapshot.data![index];
               final event =
                   registration['events'] as Map<String, dynamic>? ?? const {};
-              return Card(
-                child: ListTile(
-                  leading: NetworkPicture(
-                    url: event['flyer_url'] as String?,
-                    width: 58,
-                    height: 58,
-                    borderRadius: 12,
-                  ),
-                  title: Text('${event['title'] ?? 'Event'}'),
-                  subtitle: Text(formatDate(event['starts_at'])),
-                  trailing: StatusChip('${registration['status']}'),
-                  onTap: event.isEmpty
-                      ? null
-                      : () => Navigator.push(
-                            context,
-                            MaterialPageRoute<void>(
-                              builder: (_) => EventDetailScreen(event: event),
-                            ),
+              return EventPostCard(
+                event: event,
+                status: '${registration['status']}',
+                onTap: event.isEmpty
+                    ? () {}
+                    : () => Navigator.push(
+                          context,
+                          MaterialPageRoute<void>(
+                            builder: (_) => EventDetailScreen(event: event),
                           ),
-                ),
+                        ),
               );
             },
           ),

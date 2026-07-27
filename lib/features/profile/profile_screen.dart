@@ -5,9 +5,11 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../app.dart';
 import '../../core/supabase/uniclub_repository.dart';
+import '../../shared/event_post_card.dart';
 import '../../shared/notification_action.dart';
 import '../../shared/widgets.dart';
 import '../auth/account_security_screen.dart';
+import '../event/event_detail_screen.dart';
 import '../notifications/notification_center.dart';
 
 class ProfileScreen extends StatefulWidget {
@@ -442,6 +444,17 @@ class SettingsScreen extends ConsumerWidget {
           ),
           const _Label('Account and privacy'),
           ListTile(
+            leading: const Icon(Icons.bookmark_outline),
+            title: const Text('Saved events'),
+            subtitle: const Text('Events you bookmarked for later'),
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute<void>(
+                builder: (_) => const SavedEventsScreen(),
+              ),
+            ),
+          ),
+          ListTile(
             leading: const Icon(Icons.password),
             title: const Text('Change password'),
             onTap: () => Navigator.push(
@@ -492,6 +505,66 @@ class SettingsScreen extends ConsumerWidget {
                     builder: (_) => const DeleteAccountScreen())),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class SavedEventsScreen extends StatefulWidget {
+  const SavedEventsScreen({super.key});
+
+  @override
+  State<SavedEventsScreen> createState() => _SavedEventsScreenState();
+}
+
+class _SavedEventsScreenState extends State<SavedEventsScreen> {
+  final repo = UniClubRepository();
+  late Future<List<Map<String, dynamic>>> future = repo.savedEvents();
+
+  Future<void> refresh() async {
+    final next = repo.savedEvents();
+    setState(() => future = next);
+    await next;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('Saved events')),
+      body: FutureBuilder<List<Map<String, dynamic>>>(
+        future: future,
+        builder: (context, snapshot) {
+          if (snapshot.hasError) {
+            return AsyncErrorState(error: snapshot.error, onRetry: refresh);
+          }
+          if (!snapshot.hasData) return const SkeletonList();
+          if (snapshot.data!.isEmpty) {
+            return const EmptyState(
+              icon: Icons.bookmark_outline,
+              title: 'No saved events',
+              message:
+                  'Tap the bookmark on an event, workshop, competition or hackathon.',
+            );
+          }
+          return RefreshIndicator(
+            onRefresh: refresh,
+            child: ListView(
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 96),
+              children: snapshot.data!
+                  .map((event) => EventPostCard(
+                        event: event,
+                        onSaveChanged: refresh,
+                        onTap: () => Navigator.push(
+                          context,
+                          MaterialPageRoute<void>(
+                            builder: (_) => EventDetailScreen(event: event),
+                          ),
+                        ),
+                      ))
+                  .toList(),
+            ),
+          );
+        },
       ),
     );
   }

@@ -4,6 +4,7 @@ import 'package:csv/csv.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:share_plus/share_plus.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/supabase/uniclub_repository.dart';
 import '../../shared/widgets.dart';
@@ -14,10 +15,12 @@ class FinanceScreen extends StatefulWidget {
     required this.club,
     required this.canManage,
     required this.canApprove,
+    required this.canViewDashboard,
   });
   final Map<String, dynamic> club;
   final bool canManage;
   final bool canApprove;
+  final bool canViewDashboard;
 
   @override
   State<FinanceScreen> createState() => _FinanceScreenState();
@@ -95,7 +98,8 @@ class _FinanceScreenState extends State<FinanceScreen> {
   }
 
   Future<void> submitExpense() async {
-    final availableBudgets = await budgets();
+    final availableBudgets =
+        widget.canViewDashboard ? await budgets() : <Map<String, dynamic>>[];
     if (!mounted) return;
     final title = TextEditingController();
     final amount = TextEditingController();
@@ -118,8 +122,7 @@ class _FinanceScreenState extends State<FinanceScreen> {
                   const SizedBox(height: 10),
                   if (availableBudgets.isNotEmpty) ...[
                     DropdownButtonFormField<String?>(
-                      decoration:
-                          const InputDecoration(labelText: 'Budget (optional)'),
+                      decoration: const InputDecoration(labelText: 'Budget'),
                       items: [
                         const DropdownMenuItem(
                             value: null, child: Text('Unallocated')),
@@ -173,6 +176,15 @@ class _FinanceScreenState extends State<FinanceScreen> {
         ),
       ),
     );
+    if (confirmed == true && receipt?.bytes == null) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('A receipt attachment is required.')),
+        );
+      }
+      await disposeTextControllersAfterRoute([title, amount, description]);
+      return;
+    }
     if (confirmed == true &&
         title.text.trim().isNotEmpty &&
         (double.tryParse(amount.text) ?? 0) > 0) {
@@ -231,6 +243,137 @@ class _FinanceScreenState extends State<FinanceScreen> {
     );
   }
 
+  Future<void> showExpense(Map<String, dynamic> row) async {
+    final paths = List<String>.from(row['receipt_urls'] as List? ?? const []);
+    final receiptUrls = <String>[];
+    for (final path in paths) {
+      if (path.startsWith('http')) {
+        receiptUrls.add(path);
+      } else {
+        receiptUrls.add(await repo.privateFileUrl('receipts', path));
+      }
+    }
+    if (!mounted) return;
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (context) => DraggableScrollableSheet(
+        expand: false,
+        initialChildSize: .72,
+        maxChildSize: .94,
+        builder: (context, controller) => ListView(
+          controller: controller,
+          padding: const EdgeInsets.all(20),
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text('${row['title']}',
+                      style: Theme.of(context).textTheme.titleLarge),
+                ),
+                StatusChip('${row['status']}'),
+              ],
+            ),
+            const SizedBox(height: 18),
+            Text('₹${(row['amount'] as num).toStringAsFixed(2)}',
+                style: Theme.of(context).textTheme.headlineMedium),
+            const SizedBox(height: 8),
+            Text('Submitted ${formatDate(row['created_at'])}'),
+            if ('${row['description'] ?? ''}'.isNotEmpty) ...[
+              const SizedBox(height: 18),
+              const SectionHeader('Description'),
+              const SizedBox(height: 6),
+              Text('${row['description']}'),
+            ],
+            const SizedBox(height: 18),
+            const SectionHeader('Receipt attachment'),
+            const SizedBox(height: 8),
+            if (receiptUrls.isEmpty)
+              const Text('No attachment was supplied.')
+            else
+              ...receiptUrls.map((url) => Card(
+                    child: ListTile(
+                      leading: const Icon(Icons.receipt_long_outlined),
+                      title: const Text('Open receipt'),
+                      subtitle: const Text('Private, time-limited access'),
+                      trailing: const Icon(Icons.open_in_new),
+                      onTap: () => launchUrl(
+                        Uri.parse(url),
+                        mode: LaunchMode.externalApplication,
+                      ),
+                    ),
+                  )),
+            if (widget.canApprove && row['status'] == 'pending') ...[
+              const SizedBox(height: 20),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: () async {
+                        Navigator.pop(context);
+                        await decide('${row['id']}', 'rejected');
+                      },
+                      child: const Text('Reject'),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: FilledButton(
+                      onPressed: () async {
+                        Navigator.pop(context);
+                        await decide('${row['id']}', 'approved');
+                      },
+                      child: const Text('Approve'),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  void openMenu(List<Map<String, dynamic>> rows) {
+    showModalBottomSheet<void>(
+      context: context,
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.add_card_outlined),
+              title: const Text('Add expense'),
+              onTap: () {
+                Navigator.pop(context);
+                submitExpense();
+              },
+            ),
+            if (rows.isNotEmpty)
+              ListTile(
+                leading: const Icon(Icons.download_outlined),
+                title: const Text('Export report'),
+                onTap: () {
+                  Navigator.pop(context);
+                  export(rows);
+                },
+              ),
+            if (widget.canManage)
+              ListTile(
+                leading: const Icon(Icons.account_balance_wallet_outlined),
+                title: const Text('Create budget'),
+                onTap: () {
+                  Navigator.pop(context);
+                  createBudget();
+                },
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return FutureBuilder<List<Map<String, dynamic>>>(
@@ -254,9 +397,61 @@ class _FinanceScreenState extends State<FinanceScreen> {
             .where((row) => row['status'] == 'pending')
             .fold<double>(
                 0, (sum, row) => sum + (row['amount'] as num).toDouble());
+        if (!widget.canViewDashboard) {
+          return ListView(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 96),
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: Text('My expenses',
+                        style: Theme.of(context).textTheme.titleLarge),
+                  ),
+                  FilledButton.icon(
+                    onPressed: submitExpense,
+                    icon: const Icon(Icons.add),
+                    label: const Text('Add expense'),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 14),
+              if (rows.isEmpty)
+                const EmptyState(
+                  icon: Icons.receipt_long_outlined,
+                  title: 'No expenses submitted',
+                  message: 'Your submitted expenses will appear here.',
+                )
+              else
+                ...rows.map((row) => Card(
+                      margin: const EdgeInsets.only(bottom: 10),
+                      child: ListTile(
+                        onTap: () => showExpense(row),
+                        title: Text('${row['title']}'),
+                        subtitle: Text(
+                            '₹${row['amount']} · ${formatDate(row['created_at'])}'),
+                        trailing: StatusChip('${row['status']}'),
+                      ),
+                    )),
+            ],
+          );
+        }
         return ListView(
           padding: const EdgeInsets.fromLTRB(16, 16, 16, 96),
           children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text('Finance dashboard',
+                      style: Theme.of(context).textTheme.titleLarge),
+                ),
+                IconButton.filledTonal(
+                  tooltip: 'Finance menu',
+                  onPressed: () => openMenu(rows),
+                  icon: const Icon(Icons.more_horiz),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
             Card(
               color: Theme.of(context).colorScheme.primaryContainer,
               child: Padding(
@@ -273,26 +468,6 @@ class _FinanceScreenState extends State<FinanceScreen> {
                   ],
                 ),
               ),
-            ),
-            const SizedBox(height: 12),
-            Wrap(
-              spacing: 8,
-              children: [
-                ElevatedButton.icon(
-                    onPressed: submitExpense,
-                    icon: const Icon(Icons.add),
-                    label: const Text('Expense')),
-                OutlinedButton.icon(
-                    onPressed: rows.isEmpty ? null : () => export(rows),
-                    icon: const Icon(Icons.download_outlined),
-                    label: const Text('Report')),
-                if (widget.canManage)
-                  OutlinedButton.icon(
-                    onPressed: createBudget,
-                    icon: const Icon(Icons.account_balance_wallet_outlined),
-                    label: const Text('Budget'),
-                  ),
-              ],
             ),
             const SizedBox(height: 18),
             const SectionHeader('Budgets'),
@@ -311,17 +486,39 @@ class _FinanceScreenState extends State<FinanceScreen> {
                   return const Text('No budgets created.');
                 }
                 return Column(
-                  children: budgetSnapshot.data!
-                      .map((budget) => ListTile(
-                            contentPadding: EdgeInsets.zero,
-                            leading: const Icon(
-                                Icons.account_balance_wallet_outlined),
-                            title: Text('${budget['name']}'),
-                            subtitle: Text(
-                                '${budget['fiscal_year']} · Spent ₹${budget['spent']}'),
-                            trailing: Text('₹${budget['allocated']}'),
-                          ))
-                      .toList(),
+                  children: budgetSnapshot.data!.map((budget) {
+                    final allocated =
+                        (budget['allocated'] as num? ?? 0).toDouble();
+                    final spent = (budget['spent'] as num? ?? 0).toDouble();
+                    final progress = allocated <= 0
+                        ? 0.0
+                        : (spent / allocated).clamp(0.0, 1.0);
+                    return Card(
+                      child: Padding(
+                        padding: const EdgeInsets.all(14),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Expanded(
+                                    child: Text('${budget['name']}',
+                                        style: Theme.of(context)
+                                            .textTheme
+                                            .titleMedium)),
+                                Text('${budget['fiscal_year']}'),
+                              ],
+                            ),
+                            const SizedBox(height: 10),
+                            LinearProgressIndicator(value: progress),
+                            const SizedBox(height: 8),
+                            Text(
+                                'Spent ₹${spent.toStringAsFixed(2)} · Remaining ₹${(allocated - spent).clamp(0, double.infinity).toStringAsFixed(2)}'),
+                          ],
+                        ),
+                      ),
+                    );
+                  }).toList(),
                 );
               },
             ),
@@ -334,6 +531,7 @@ class _FinanceScreenState extends State<FinanceScreen> {
               ...rows.map((row) => Card(
                     margin: const EdgeInsets.only(bottom: 10),
                     child: ListTile(
+                      onTap: () => showExpense(row),
                       title: Text('${row['title']}'),
                       subtitle: Text(
                           '₹${row['amount']} · ${formatDate(row['created_at'])}'),

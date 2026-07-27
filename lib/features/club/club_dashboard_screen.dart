@@ -25,6 +25,11 @@ class ClubDashboardScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final position =
+        membership['club_positions'] as Map<String, dynamic>? ?? const {};
+    final roleName = '${position['name'] ?? ''}';
+    final financeRole =
+        {'President', 'Supervisor', 'Treasurer'}.contains(roleName);
     return DefaultTabController(
       length: 7,
       child: Scaffold(
@@ -55,12 +60,16 @@ class ClubDashboardScreen extends StatelessWidget {
               canManage: can('manage_announcements'),
             ),
             EventManagementScreen(club: club, canManage: can('manage_events')),
-            RoleManagementScreen(club: club),
+            RoleManagementScreen(
+              club: club,
+              canManage: can('manage_members'),
+            ),
             const ClubTasksView(),
             FinanceScreen(
               club: club,
-              canManage: can('manage_finance'),
-              canApprove: can('approve_expenses'),
+              canManage: financeRole && can('manage_finance'),
+              canApprove: financeRole && can('approve_expenses'),
+              canViewDashboard: financeRole,
             ),
             ClubSettingsView(
               club: club,
@@ -74,8 +83,13 @@ class ClubDashboardScreen extends StatelessWidget {
 }
 
 class RoleManagementScreen extends StatefulWidget {
-  const RoleManagementScreen({super.key, required this.club});
+  const RoleManagementScreen({
+    super.key,
+    required this.club,
+    required this.canManage,
+  });
   final Map<String, dynamic> club;
+  final bool canManage;
 
   @override
   State<RoleManagementScreen> createState() => _RoleManagementScreenState();
@@ -88,7 +102,7 @@ class _RoleManagementScreenState extends State<RoleManagementScreen> {
         repo.client
             .from('club_memberships')
             .select(
-                '*, profiles!club_memberships_user_id_fkey(full_name,email,avatar_url), club_positions(*)')
+                '*, profiles!club_memberships_user_id_fkey(full_name,email,username,avatar_url,department,academic_year,skills), club_positions(*)')
             .eq('club_id', widget.club['id'])
             .order('joined_at'),
         repo.client
@@ -168,16 +182,18 @@ class _RoleManagementScreenState extends State<RoleManagementScreen> {
     );
     if (user == null) return;
     try {
-      final memberRole = await repo.client
+      final positions = List<Map<String, dynamic>>.from(await repo.client
           .from('club_positions')
-          .select('id')
+          .select('id,name')
           .eq('club_id', widget.club['id'])
-          .eq('name', 'Member')
-          .single();
+          .order('rank'));
+      if (!mounted) return;
+      final positionId = await _choosePosition(positions);
+      if (positionId == null) return;
       await repo.client.from('club_memberships').upsert({
         'club_id': widget.club['id'],
         'user_id': user['id'],
-        'position_id': memberRole['id'],
+        'position_id': positionId,
         'status': 'active',
         'joined_at': DateTime.now().toIso8601String(),
         'ended_at': null,
@@ -192,64 +208,75 @@ class _RoleManagementScreenState extends State<RoleManagementScreen> {
     }
   }
 
-  Future<void> createRole() async {
-    final name = TextEditingController();
-    final selected = <String>{};
-    const permissions = [
-      'manage_members',
-      'manage_events',
-      'manage_announcements',
-      'manage_finance',
-      'approve_expenses',
-      'manage_attendance',
-      'manage_social',
-    ];
-    final accepted = await showDialog<bool>(
+  Future<String?> _choosePosition(List<Map<String, dynamic>> positions) async {
+    final choice = await showModalBottomSheet<String>(
       context: context,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setModalState) => AlertDialog(
-          title: const Text('Custom club role'),
-          content: SizedBox(
-            width: 480,
-            child: SingleChildScrollView(
-              child: Column(
-                children: [
-                  TextField(
-                      controller: name,
-                      decoration:
-                          const InputDecoration(labelText: 'Role name')),
-                  const SizedBox(height: 10),
-                  ...permissions.map((permission) => CheckboxListTile(
-                        value: selected.contains(permission),
-                        title: Text(permission.replaceAll('_', ' ')),
-                        onChanged: (value) => setModalState(() => value == true
-                            ? selected.add(permission)
-                            : selected.remove(permission)),
-                      )),
-                ],
-              ),
+      builder: (context) => SafeArea(
+        child: ListView(
+          shrinkWrap: true,
+          children: [
+            const ListTile(
+              title: Text('Choose member position'),
+              subtitle: Text('You can define another title if needed.'),
             ),
-          ),
-          actions: [
-            TextButton(
-                onPressed: () => Navigator.pop(context, false),
-                child: const Text('Cancel')),
-            FilledButton(
-                onPressed: () => Navigator.pop(context, true),
-                child: const Text('Create')),
+            ...positions.map((position) => ListTile(
+                  title: Text('${position['name']}'),
+                  onTap: () => Navigator.pop(context, '${position['id']}'),
+                )),
+            ListTile(
+              leading: const Icon(Icons.add),
+              title: const Text('Other'),
+              onTap: () => Navigator.pop(context, '__other__'),
+            ),
           ],
         ),
       ),
     );
-    if (accepted == true && name.text.trim().isNotEmpty) {
-      await repo.client.from('club_positions').insert({
-        'club_id': widget.club['id'],
-        'name': name.text.trim(),
-        'permissions': selected.toList(),
-      });
-      if (mounted) setState(() {});
-    }
-    await disposeTextControllersAfterRoute([name]);
+    if (choice != '__other__') return choice;
+    if (!mounted) return null;
+    final controller = TextEditingController();
+    final roleName = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('New position title'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          decoration: const InputDecoration(
+            labelText: 'Position',
+            helperText: 'This role starts without management permissions.',
+          ),
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel')),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, controller.text.trim()),
+            child: const Text('Use position'),
+          ),
+        ],
+      ),
+    );
+    await disposeTextControllersAfterRoute([controller]);
+    if (roleName == null || roleName.isEmpty) return null;
+    final existing = positions.where(
+      (position) =>
+          '${position['name']}'.toLowerCase() == roleName.toLowerCase(),
+    );
+    if (existing.isNotEmpty) return '${existing.first['id']}';
+    final created = await repo.client
+        .from('club_positions')
+        .insert({
+          'club_id': widget.club['id'],
+          'name': roleName,
+          'rank': 90,
+          'permissions': <String>[],
+          'is_system': false,
+        })
+        .select('id')
+        .single();
+    return '${created['id']}';
   }
 
   @override
@@ -258,14 +285,11 @@ class _RoleManagementScreenState extends State<RoleManagementScreen> {
       appBar: AppBar(
         title: const Text('Members and roles'),
         actions: [
-          IconButton(
-              tooltip: 'Add member',
-              onPressed: addMember,
-              icon: const Icon(Icons.person_add_alt_1_outlined)),
-          IconButton(
-              tooltip: 'Create role',
-              onPressed: createRole,
-              icon: const Icon(Icons.add_moderator_outlined)),
+          if (widget.canManage)
+            IconButton(
+                tooltip: 'Add member',
+                onPressed: addMember,
+                icon: const Icon(Icons.person_add_alt_1_outlined)),
         ],
       ),
       body: FutureBuilder<List<dynamic>>(
@@ -327,67 +351,127 @@ class _RoleManagementScreenState extends State<RoleManagementScreen> {
                       borderRadius: 22),
                   title: Text('${user['full_name'] ?? membership['user_id']}'),
                   subtitle: Text(
-                      '${(membership['club_positions'] as Map?)?['name'] ?? 'Member'} · ${membership['status']}'),
-                  trailing: SizedBox(
-                    width: 170,
-                    child: Row(
-                      children: [
-                        if (membership['status'] == 'active')
-                          Expanded(
-                            child: DropdownButton<String>(
-                              value: membership['position_id'] as String?,
-                              isExpanded: true,
-                              hint: const Text('Role'),
-                              onChanged: isSelf
-                                  ? null
-                                  : (value) {
-                                      if (value != null) {
-                                        assign('${membership['id']}', value);
-                                      }
-                                    },
-                              items: positions
-                                  .map((position) => DropdownMenuItem(
-                                      value: '${position['id']}',
-                                      child: Text(
-                                        '${position['name']}',
-                                        overflow: TextOverflow.ellipsis,
-                                      )))
-                                  .toList(),
-                            ),
+                      '${(membership['club_positions'] as Map?)?['name'] ?? 'Member'} · ${membership['status']}\n${user['department'] ?? 'Department not added'}${user['academic_year'] == null ? '' : ' · ${user['academic_year']}'}'),
+                  isThreeLine: true,
+                  onTap: () => _showMemberDetails(user, membership),
+                  trailing: !widget.canManage
+                      ? null
+                      : SizedBox(
+                          width: 170,
+                          child: Row(
+                            children: [
+                              if (membership['status'] == 'active')
+                                Expanded(
+                                  child: DropdownButton<String>(
+                                    value: membership['position_id'] as String?,
+                                    isExpanded: true,
+                                    hint: const Text('Role'),
+                                    onChanged: isSelf
+                                        ? null
+                                        : (value) {
+                                            if (value != null) {
+                                              assign(
+                                                  '${membership['id']}', value);
+                                            }
+                                          },
+                                    items: positions
+                                        .map((position) => DropdownMenuItem(
+                                            value: '${position['id']}',
+                                            child: Text(
+                                              '${position['name']}',
+                                              overflow: TextOverflow.ellipsis,
+                                            )))
+                                        .toList(),
+                                  ),
+                                ),
+                              if (membership['status'] != 'active')
+                                Expanded(
+                                  child: PopupMenuButton<String>(
+                                    tooltip: 'Review request',
+                                    onSelected: (value) =>
+                                        decideMembership(membership, value),
+                                    itemBuilder: (_) => const [
+                                      PopupMenuItem(
+                                          value: 'active',
+                                          child: Text('Accept')),
+                                      PopupMenuItem(
+                                          value: 'waitlisted',
+                                          child: Text('Waitlist')),
+                                      PopupMenuItem(
+                                          value: 'rejected',
+                                          child: Text('Reject')),
+                                    ],
+                                    child: const Text('Review'),
+                                  ),
+                                ),
+                              IconButton(
+                                tooltip: 'Remove member',
+                                onPressed: isSelf
+                                    ? null
+                                    : () => removeMember('${membership['id']}'),
+                                icon: const Icon(Icons.person_remove_outlined),
+                              ),
+                            ],
                           ),
-                        if (membership['status'] != 'active')
-                          Expanded(
-                            child: PopupMenuButton<String>(
-                              tooltip: 'Review request',
-                              onSelected: (value) =>
-                                  decideMembership(membership, value),
-                              itemBuilder: (_) => const [
-                                PopupMenuItem(
-                                    value: 'active', child: Text('Accept')),
-                                PopupMenuItem(
-                                    value: 'waitlisted',
-                                    child: Text('Waitlist')),
-                                PopupMenuItem(
-                                    value: 'rejected', child: Text('Reject')),
-                              ],
-                              child: const Text('Review'),
-                            ),
-                          ),
-                        IconButton(
-                          tooltip: 'Remove member',
-                          onPressed: isSelf
-                              ? null
-                              : () => removeMember('${membership['id']}'),
-                          icon: const Icon(Icons.person_remove_outlined),
                         ),
-                      ],
-                    ),
-                  ),
                 ),
               );
             },
           );
         },
+      ),
+    );
+  }
+
+  void _showMemberDetails(
+      Map<String, dynamic> user, Map<String, dynamic> membership) {
+    final skills = List<String>.from(user['skills'] as List? ?? const []);
+    showModalBottomSheet<void>(
+      context: context,
+      builder: (context) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              NetworkPicture(
+                url: user['avatar_url'] as String?,
+                width: 82,
+                height: 82,
+                borderRadius: 41,
+              ),
+              const SizedBox(height: 12),
+              Text('${user['full_name'] ?? 'Member'}',
+                  style: Theme.of(context).textTheme.titleLarge),
+              Text(
+                  '${(membership['club_positions'] as Map?)?['name'] ?? 'Member'}'),
+              const SizedBox(height: 16),
+              ListTile(
+                leading: const Icon(Icons.alternate_email),
+                title: Text('${user['username'] ?? 'No username'}'),
+              ),
+              ListTile(
+                leading: const Icon(Icons.mail_outline),
+                title: Text('${user['email'] ?? 'No email'}'),
+              ),
+              ListTile(
+                leading: const Icon(Icons.school_outlined),
+                title: Text('${user['department'] ?? 'Department not added'}'),
+                subtitle: Text('${user['academic_year'] ?? ''}'),
+              ),
+              if (skills.isNotEmpty)
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: Wrap(
+                    spacing: 6,
+                    children: skills
+                        .map((value) => Chip(label: Text(value)))
+                        .toList(),
+                  ),
+                ),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -552,14 +636,66 @@ class _OverviewState extends State<_Overview> {
   @override
   Widget build(BuildContext context) {
     return ListView(
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 96),
+      padding: const EdgeInsets.only(bottom: 96),
       children: [
-        NetworkPicture(
-            url: widget.club['banner_url'] as String?,
-            width: double.infinity,
-            height: 180),
-        const SizedBox(height: 16),
-        Text('${widget.club['description'] ?? ''}'),
+        Stack(
+          clipBehavior: Clip.none,
+          children: [
+            NetworkPicture(
+              url: widget.club['banner_url'] as String?,
+              width: double.infinity,
+              height: 190,
+              borderRadius: 0,
+            ),
+            Positioned(
+              left: 18,
+              bottom: -44,
+              child: Container(
+                padding: const EdgeInsets.all(4),
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.surface,
+                  shape: BoxShape.circle,
+                ),
+                child: NetworkPicture(
+                  url: widget.club['logo_url'] as String?,
+                  width: 88,
+                  height: 88,
+                  borderRadius: 44,
+                ),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 54),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 18),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: Text('${widget.club['name']}',
+                        style: Theme.of(context).textTheme.headlineSmall),
+                  ),
+                  if (widget.club['verified'] == true)
+                    Icon(Icons.verified,
+                        color: Theme.of(context).colorScheme.primary),
+                ],
+              ),
+              if ('${widget.club['tagline'] ?? ''}'.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(top: 4),
+                  child: Text(
+                    '${widget.club['tagline']}',
+                    style: Theme.of(context).textTheme.bodyLarge,
+                  ),
+                ),
+              const SizedBox(height: 14),
+              Text('${widget.club['description'] ?? ''}'),
+            ],
+          ),
+        ),
         const SizedBox(height: 20),
         FutureBuilder<Map<String, int>>(
           future: stats(),
@@ -568,22 +704,17 @@ class _OverviewState extends State<_Overview> {
               return AsyncErrorState(error: snapshot.error);
             }
             if (!snapshot.hasData) {
-              return const SizedBox(height: 180, child: SkeletonList(count: 2));
+              return const SizedBox(
+                height: 76,
+                child: Center(child: CircularProgressIndicator()),
+              );
             }
-            return GridView.count(
-              crossAxisCount: 2,
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              childAspectRatio: 2.1,
-              mainAxisSpacing: 10,
-              crossAxisSpacing: 10,
-              children: snapshot.data!.entries
-                  .map((entry) => Card(
-                        child: Padding(
-                          padding: const EdgeInsets.all(12),
+            return Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              child: Row(
+                children: snapshot.data!.entries
+                    .map((entry) => Expanded(
                           child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            mainAxisAlignment: MainAxisAlignment.center,
                             children: [
                               Text('${entry.value}',
                                   style:
@@ -591,62 +722,22 @@ class _OverviewState extends State<_Overview> {
                               Text(entry.key),
                             ],
                           ),
-                        ),
-                      ))
-                  .toList(),
+                        ))
+                    .toList(),
+              ),
             );
           },
         ),
-        const SizedBox(height: 24),
-        if (widget.canManageMembers) ...[
-          const SectionHeader('Join requests'),
-          const SizedBox(height: 10),
-          FutureBuilder<List<Map<String, dynamic>>>(
-            future: joinRequests(),
-            builder: (context, snapshot) {
-              if (snapshot.hasError) {
-                return AsyncErrorState(error: snapshot.error);
-              }
-              if (!snapshot.hasData) {
-                return const SizedBox(
-                    height: 100, child: SkeletonList(count: 1));
-              }
-              if (snapshot.data!.isEmpty) {
-                return const Text('No pending join requests.');
-              }
-              return Column(
-                children: snapshot.data!.map((membership) {
-                  final user = Map<String, dynamic>.from(
-                      membership['profiles'] as Map? ?? {});
-                  return Card(
-                    child: ListTile(
-                      leading: NetworkPicture(
-                          url: user['avatar_url'] as String?,
-                          width: 42,
-                          height: 42,
-                          borderRadius: 21),
-                      title:
-                          Text('${user['full_name'] ?? membership['user_id']}'),
-                      subtitle: Text('${membership['status']}'),
-                      trailing: PopupMenuButton<String>(
-                        onSelected: (value) =>
-                            decideMembership(membership, value),
-                        itemBuilder: (_) => const [
-                          PopupMenuItem(value: 'active', child: Text('Accept')),
-                          PopupMenuItem(
-                              value: 'rejected', child: Text('Reject')),
-                          PopupMenuItem(
-                              value: 'waitlisted', child: Text('Waitlist')),
-                        ],
-                      ),
-                    ),
-                  );
-                }).toList(),
-              );
-            },
+        const SizedBox(height: 20),
+        const Divider(height: 1),
+        Padding(
+          padding: const EdgeInsets.all(24),
+          child: Text(
+            'Use the tabs above to manage announcements, events, members, tasks, finance and club settings.',
+            textAlign: TextAlign.center,
+            style: Theme.of(context).textTheme.bodySmall,
           ),
-          const SizedBox(height: 24),
-        ],
+        ),
       ],
     );
   }
@@ -872,6 +963,8 @@ class _ClubSettingsViewState extends State<ClubSettingsView> {
   late final name = TextEditingController(text: '${widget.club['name']}');
   late final description =
       TextEditingController(text: '${widget.club['description'] ?? ''}');
+  late final tagline =
+      TextEditingController(text: '${widget.club['tagline'] ?? ''}');
   late final location =
       TextEditingController(text: '${widget.club['location'] ?? ''}');
   late String? logoUrl = widget.club['logo_url'] as String?;
@@ -896,6 +989,7 @@ class _ClubSettingsViewState extends State<ClubSettingsView> {
     try {
       await repo.client.from('clubs').update({
         'name': name.text.trim(),
+        'tagline': tagline.text.trim(),
         'description': description.text.trim(),
         'location': location.text.trim(),
         'logo_url': logoUrl,
@@ -996,6 +1090,15 @@ class _ClubSettingsViewState extends State<ClubSettingsView> {
         ),
         const SizedBox(height: 12),
         TextField(
+          controller: tagline,
+          maxLength: 100,
+          decoration: const InputDecoration(
+            labelText: 'Tagline',
+            hintText: 'A short line that describes the club',
+          ),
+        ),
+        const SizedBox(height: 12),
+        TextField(
           controller: description,
           minLines: 4,
           maxLines: 8,
@@ -1030,6 +1133,7 @@ class _ClubSettingsViewState extends State<ClubSettingsView> {
   @override
   void dispose() {
     name.dispose();
+    tagline.dispose();
     description.dispose();
     location.dispose();
     super.dispose();
