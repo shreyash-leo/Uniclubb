@@ -19,8 +19,8 @@ class ClubWorkScreen extends StatelessWidget {
           actions: const [NotificationAction()],
           bottom: const TabBar(
             tabs: [
-              Tab(icon: Icon(Icons.chat_bubble_outline), text: 'Chats'),
-              Tab(icon: Icon(Icons.task_alt), text: 'Tasks'),
+              Tab(height: 40, text: 'Chats'),
+              Tab(height: 40, text: 'Tasks'),
             ],
           ),
         ),

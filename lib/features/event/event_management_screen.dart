@@ -531,6 +531,7 @@ class _CreateAdvancedEventScreenState extends State<CreateAdvancedEventScreen> {
             const SectionHeader('Registration mode'),
             const SizedBox(height: 8),
             SegmentedButton<String>(
+              showSelectedIcon: false,
               segments: const [
                 ButtonSegment(
                     value: 'none',
@@ -959,11 +960,13 @@ class _AttendanceAdminScreenState extends State<AttendanceAdminScreen> {
       child: Scaffold(
         appBar: AppBar(
           title: const Text('Attendance'),
-          bottom: const TabBar(tabs: [
-            Tab(text: 'QR scanner'),
-            Tab(text: 'Manual'),
-            Tab(text: 'Analytics'),
-          ]),
+          bottom: const TabBar(
+            tabs: [
+              Tab(height: 40, text: 'QR scanner'),
+              Tab(height: 40, text: 'Manual'),
+              Tab(height: 40, text: 'Analytics'),
+            ],
+          ),
         ),
         body: TabBarView(
           children: [
@@ -985,6 +988,7 @@ class _AttendanceAdminScreenState extends State<AttendanceAdminScreen> {
                   right: 20,
                   bottom: 24,
                   child: SegmentedButton<bool>(
+                    showSelectedIcon: false,
                     segments: const [
                       ButtonSegment(
                           value: false,

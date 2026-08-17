@@ -25,4 +25,17 @@ void main() {
     expect(Validators.requiredField('   ', label: 'Name'), 'Name is required');
     expect(Validators.requiredField(' UniClub ', label: 'Name'), isNull);
   });
+
+  group('Validators.username', () {
+    test('accepts normalized campus usernames', () {
+      expect(Validators.username('student_2026'), isNull);
+      expect(Validators.username('ClubLead'), isNull);
+    });
+
+    test('rejects unsafe or incorrectly sized usernames', () {
+      expect(Validators.username('ab'), isNotNull);
+      expect(Validators.username('student name'), isNotNull);
+      expect(Validators.username('student-name'), isNotNull);
+    });
+  });
 }

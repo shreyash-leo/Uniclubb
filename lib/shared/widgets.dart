@@ -2,6 +2,8 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
+import '../ui/app_colors.dart';
+
 String formatDate(dynamic value, {bool time = true}) {
   final parsed =
       value is DateTime ? value : DateTime.tryParse('$value') ?? DateTime.now();
@@ -12,6 +14,11 @@ String formatDate(dynamic value, {bool time = true}) {
 Future<void> disposeTextControllersAfterRoute(
   Iterable<TextEditingController> controllers,
 ) async {
+  // A dialog or bottom-sheet Future completes when pop is requested, but its
+  // widgets can remain mounted during the reverse transition. Disposing on the
+  // next frame can therefore make a TextField rebuild with a dead controller.
+  // This exceeds the standard route reverse durations used by every caller.
+  await Future<void>.delayed(const Duration(milliseconds: 400));
   await WidgetsBinding.instance.endOfFrame;
   for (final controller in controllers) {
     controller.dispose();
@@ -105,25 +112,21 @@ class EmptyState extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(32),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon,
-                size: 56,
-                color: Theme.of(context).colorScheme.onSurfaceVariant),
-            const SizedBox(height: 14),
-            Text(title,
-                style: Theme.of(context).textTheme.titleMedium,
-                textAlign: TextAlign.center),
-            if (message != null) ...[
-              const SizedBox(height: 6),
-              Text(message!, textAlign: TextAlign.center),
-            ],
+    return _AdaptiveStateLayout(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon,
+              size: 56, color: Theme.of(context).colorScheme.onSurfaceVariant),
+          const SizedBox(height: 14),
+          Text(title,
+              style: Theme.of(context).textTheme.titleMedium,
+              textAlign: TextAlign.center),
+          if (message != null) ...[
+            const SizedBox(height: 6),
+            Text(message!, textAlign: TextAlign.center),
           ],
-        ),
+        ],
       ),
     );
   }
@@ -143,41 +146,76 @@ class AsyncErrorState extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(32),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              Icons.cloud_off_outlined,
-              size: 56,
-              color: Theme.of(context).colorScheme.error,
+    return _AdaptiveStateLayout(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            Icons.cloud_off_outlined,
+            size: 56,
+            color: Theme.of(context).colorScheme.error,
+          ),
+          const SizedBox(height: 14),
+          Text(
+            title,
+            style: Theme.of(context).textTheme.titleMedium,
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 6),
+          const Text(
+            'Check your connection and try again.',
+            textAlign: TextAlign.center,
+          ),
+          if (onRetry != null) ...[
+            const SizedBox(height: 16),
+            FilledButton.icon(
+              onPressed: onRetry,
+              icon: const Icon(Icons.refresh),
+              label: const Text('Try again'),
             ),
-            const SizedBox(height: 14),
-            Text(
-              title,
-              style: Theme.of(context).textTheme.titleMedium,
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 6),
-            const Text(
-              'Check your connection and try again.',
-              textAlign: TextAlign.center,
-            ),
-            if (onRetry != null) ...[
-              const SizedBox(height: 16),
-              FilledButton.icon(
-                onPressed: onRetry,
-                icon: const Icon(Icons.refresh),
-                label: const Text('Try again'),
-              ),
-            ],
           ],
-        ),
+        ],
       ),
     );
   }
+}
+
+class _AdaptiveStateLayout extends StatelessWidget {
+  const _AdaptiveStateLayout({required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) => LayoutBuilder(
+        builder: (context, constraints) {
+          if (!constraints.hasBoundedHeight) {
+            return Padding(
+              padding: const EdgeInsets.all(32),
+              child: Center(child: child),
+            );
+          }
+
+          final compact = constraints.maxHeight < 180;
+          final verticalPadding = compact ? 8.0 : 32.0;
+          final minimumHeight = constraints.maxHeight > verticalPadding * 2
+              ? constraints.maxHeight - verticalPadding * 2
+              : 0.0;
+          return SingleChildScrollView(
+            primary: false,
+            physics: compact
+                ? const ClampingScrollPhysics()
+                : const NeverScrollableScrollPhysics(),
+            padding: EdgeInsets.symmetric(
+              horizontal: 32,
+              vertical: verticalPadding,
+            ),
+            child: ConstrainedBox(
+              constraints: BoxConstraints(minHeight: minimumHeight),
+              child: Center(child: child),
+            ),
+          );
+        },
+      );
 }
 
 class SectionHeader extends StatelessWidget {
@@ -206,10 +244,10 @@ class StatusChip extends StatelessWidget {
   Widget build(BuildContext context) {
     final normalized = value.toLowerCase();
     final color = switch (normalized) {
-      'approved' || 'active' || 'paid' || 'completed' => Colors.green,
-      'rejected' || 'suspended' || 'cancelled' || 'failed' => Colors.red,
-      'waitlisted' => Colors.purple,
-      _ => Colors.orange,
+      'approved' || 'active' || 'paid' || 'completed' => AppColors.success,
+      'rejected' || 'suspended' || 'cancelled' || 'failed' => AppColors.danger,
+      'waitlisted' || 'pending' => AppColors.warning,
+      _ => AppColors.primary,
     };
     return Chip(
       visualDensity: VisualDensity.compact,

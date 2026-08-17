@@ -8,9 +8,17 @@ import '../../core/supabase/uniclub_repository.dart';
 import '../main/main_shell.dart';
 import 'auth_screen.dart';
 import 'account_security_screen.dart';
+import 'profile_onboarding_screen.dart';
 
-class AuthGate extends StatelessWidget {
+class AuthGate extends StatefulWidget {
   const AuthGate({super.key});
+
+  @override
+  State<AuthGate> createState() => _AuthGateState();
+}
+
+class _AuthGateState extends State<AuthGate> {
+  int profileRevision = 0;
 
   @override
   Widget build(BuildContext context) {
@@ -46,6 +54,15 @@ class AuthGate extends StatelessWidget {
               return SuspendedAccountScreen(
                 reason: profile?['suspension_reason'] as String?,
                 until: suspendedUntil,
+              );
+            }
+            if (profile?['onboarding_complete'] != true) {
+              return ProfileOnboardingScreen(
+                key: ValueKey(profileRevision),
+                profile: profile ?? const <String, dynamic>{},
+                onComplete: () {
+                  if (mounted) setState(() => profileRevision++);
+                },
               );
             }
             return const _AppVersionGate();

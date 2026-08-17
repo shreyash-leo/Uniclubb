@@ -174,6 +174,7 @@ class _GlobalSearchScreenState extends State<GlobalSearchScreen> {
                               })
                         .entries
                         .map((entry) => ChoiceChip(
+                              showCheckmark: false,
                               selected: nextKind == entry.key,
                               label: Text(entry.value),
                               onSelected: (_) =>
@@ -190,6 +191,7 @@ class _GlobalSearchScreenState extends State<GlobalSearchScreen> {
                       spacing: 8,
                       children: ['All', 'official', 'student', 'department']
                           .map((value) => ChoiceChip(
+                                showCheckmark: false,
                                 selected: nextClubType == value,
                                 label: Text(value == 'All'
                                     ? 'All types'
@@ -224,6 +226,7 @@ class _GlobalSearchScreenState extends State<GlobalSearchScreen> {
                     runSpacing: 2,
                     children: categories
                         .map((value) => FilterChip(
+                              showCheckmark: false,
                               selected: nextCategory == value,
                               label: Text(value),
                               onSelected: (_) =>

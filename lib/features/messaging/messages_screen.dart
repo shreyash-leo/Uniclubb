@@ -142,18 +142,9 @@ class _MessagesScreenState extends State<MessagesScreen> {
     final tabs = TabBar(
       isScrollable: true,
       tabAlignment: TabAlignment.start,
-      dividerColor: Colors.transparent,
-      indicatorSize: TabBarIndicatorSize.tab,
-      indicator: BoxDecoration(
-        color: Theme.of(context).colorScheme.primaryContainer,
-        borderRadius: BorderRadius.circular(24),
-      ),
-      labelColor: Theme.of(context).colorScheme.onPrimaryContainer,
-      unselectedLabelColor: Theme.of(context).colorScheme.onSurfaceVariant,
-      labelPadding: const EdgeInsets.symmetric(horizontal: 14),
       tabs: const [
-        Tab(height: 36, text: 'Direct messages'),
-        Tab(height: 36, text: 'Club chats'),
+        Tab(height: 40, text: 'Direct'),
+        Tab(height: 40, text: 'Club chats'),
       ],
     );
     final controls = Padding(
@@ -560,11 +551,14 @@ class _ConversationScreenState extends State<ConversationScreen> {
                         constraints: const BoxConstraints(maxWidth: 340),
                         decoration: BoxDecoration(
                           color: mine
-                              ? Theme.of(context).colorScheme.primaryContainer
-                              : Theme.of(context)
-                                  .colorScheme
-                                  .surfaceContainerHighest,
-                          borderRadius: BorderRadius.circular(16),
+                              ? Theme.of(context).colorScheme.primary
+                              : Theme.of(context).colorScheme.surfaceContainer,
+                          borderRadius: BorderRadius.only(
+                            topLeft: const Radius.circular(20),
+                            topRight: const Radius.circular(20),
+                            bottomLeft: Radius.circular(mine ? 20 : 6),
+                            bottomRight: Radius.circular(mine ? 6 : 20),
+                          ),
                         ),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.end,
@@ -572,14 +566,33 @@ class _ConversationScreenState extends State<ConversationScreen> {
                             if (sharedEvent != null)
                               _SharedEventMessage(
                                 attachment: sharedEvent,
+                                textColor: mine
+                                    ? Colors.white
+                                    : Theme.of(context).colorScheme.onSurface,
                                 onTap: () => openSharedEvent(sharedEvent),
                               )
                             else
-                              Text('${row['body'] ?? ''}'),
+                              Text(
+                                '${row['body'] ?? ''}',
+                                style: TextStyle(
+                                  color: mine
+                                      ? Colors.white
+                                      : Theme.of(context).colorScheme.onSurface,
+                                ),
+                              ),
                             const SizedBox(height: 3),
                             Text(
                               _messageTime(row['created_at']),
-                              style: Theme.of(context).textTheme.labelSmall,
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .labelSmall
+                                  ?.copyWith(
+                                    color: mine
+                                        ? Colors.white70
+                                        : Theme.of(context)
+                                            .colorScheme
+                                            .onSurfaceVariant,
+                                  ),
                             ),
                           ],
                         ),
@@ -606,14 +619,17 @@ class _ConversationScreenState extends State<ConversationScreen> {
                     decoration:
                         const InputDecoration(hintText: 'Write a message…'),
                   )),
-                  IconButton(
+                  IconButton.filled(
                     onPressed: sending ? null : send,
                     icon: sending
                         ? const SizedBox.square(
                             dimension: 20,
-                            child: CircularProgressIndicator(strokeWidth: 2),
+                            child: CircularProgressIndicator(
+                              color: Colors.white,
+                              strokeWidth: 2,
+                            ),
                           )
-                        : const Icon(Icons.send),
+                        : const Icon(Icons.send_rounded),
                   ),
                 ],
               ),
@@ -635,10 +651,12 @@ class _ConversationScreenState extends State<ConversationScreen> {
 class _SharedEventMessage extends StatelessWidget {
   const _SharedEventMessage({
     required this.attachment,
+    required this.textColor,
     required this.onTap,
   });
 
   final Map<String, dynamic> attachment;
+  final Color textColor;
   final VoidCallback onTap;
 
   @override
@@ -651,32 +669,44 @@ class _SharedEventMessage extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            NetworkPicture(
-              url: attachment['flyer_url'] as String?,
-              width: 250,
-              height: 145,
-              borderRadius: 12,
+            AspectRatio(
+              aspectRatio: 4 / 3,
+              child: NetworkPicture(
+                url: attachment['flyer_url'] as String?,
+                width: 250,
+                height: double.infinity,
+                borderRadius: 12,
+              ),
             ),
             const SizedBox(height: 9),
             Text(
               '${attachment['title'] ?? 'Campus event'}',
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
-              style: Theme.of(context).textTheme.titleSmall,
+              style: Theme.of(context)
+                  .textTheme
+                  .titleSmall
+                  ?.copyWith(color: textColor),
             ),
             const SizedBox(height: 3),
             Text(
               '${attachment['club_name'] ?? 'UniClub'} · ${formatDate(attachment['starts_at'])}',
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
-              style: Theme.of(context).textTheme.bodySmall,
+              style: Theme.of(context)
+                  .textTheme
+                  .bodySmall
+                  ?.copyWith(color: textColor.withValues(alpha: .8)),
             ),
             const SizedBox(height: 5),
             Text(
               '${attachment['venue_name'] ?? 'Venue to be announced'}',
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: Theme.of(context).textTheme.bodySmall,
+              style: Theme.of(context)
+                  .textTheme
+                  .bodySmall
+                  ?.copyWith(color: textColor.withValues(alpha: .8)),
             ),
           ],
         ),

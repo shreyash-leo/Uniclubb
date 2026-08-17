@@ -145,7 +145,7 @@ class _EventPostCardState extends State<EventPostCard> {
                   (widget.status == null ? null : StatusChip(widget.status!)),
             ),
             AspectRatio(
-              aspectRatio: 4 / 5,
+              aspectRatio: 4 / 3,
               child: NetworkPicture(
                 url: event['flyer_url'] as String?,
                 width: double.infinity,
@@ -184,6 +184,27 @@ class _EventPostCardState extends State<EventPostCard> {
                       ),
                     ],
                   ),
+                  if (event['capacity'] != null ||
+                      event['is_paid'] != null) ...[
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 14,
+                      runSpacing: 8,
+                      children: [
+                        if (event['capacity'] != null)
+                          _EventMeta(
+                            icon: Icons.groups_outlined,
+                            text: '${event['capacity']} seats',
+                          ),
+                        _EventMeta(
+                          icon: event['is_paid'] == true
+                              ? Icons.confirmation_number_outlined
+                              : Icons.check_circle_outline,
+                          text: event['is_paid'] == true ? 'Paid' : 'Free',
+                        ),
+                      ],
+                    ),
+                  ],
                   if ('${event['description'] ?? ''}'.isNotEmpty) ...[
                     const SizedBox(height: 9),
                     Text(
@@ -244,6 +265,27 @@ class _EventPostCardState extends State<EventPostCard> {
             part.isEmpty ? '' : '${part[0].toUpperCase()}${part.substring(1)}')
         .join(' ');
   }
+}
+
+class _EventMeta extends StatelessWidget {
+  const _EventMeta({required this.icon, required this.text});
+
+  final IconData icon;
+  final String text;
+
+  @override
+  Widget build(BuildContext context) => Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            icon,
+            size: 16,
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
+          ),
+          const SizedBox(width: 5),
+          Text(text, style: Theme.of(context).textTheme.bodySmall),
+        ],
+      );
 }
 
 class _EventShareSheet extends StatefulWidget {

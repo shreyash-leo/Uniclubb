@@ -18,11 +18,10 @@ class EventsHubScreen extends StatelessWidget {
           title: const Text('Events'),
           actions: const [NotificationAction()],
           bottom: const TabBar(
-            isScrollable: true,
             tabs: [
-              Tab(text: 'Upcoming events'),
-              Tab(text: 'Hackathons'),
-              Tab(text: 'Joined events'),
+              Tab(height: 40, text: 'Upcoming'),
+              Tab(height: 40, text: 'Hackathons'),
+              Tab(height: 40, text: 'Joined'),
             ],
           ),
         ),

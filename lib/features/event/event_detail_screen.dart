@@ -144,11 +144,14 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
       body: ListView(
         padding: const EdgeInsets.only(bottom: 120),
         children: [
-          NetworkPicture(
-            url: event['flyer_url'] as String?,
-            width: double.infinity,
-            height: 280,
-            borderRadius: 0,
+          AspectRatio(
+            aspectRatio: 4 / 3,
+            child: NetworkPicture(
+              url: event['flyer_url'] as String?,
+              width: double.infinity,
+              height: double.infinity,
+              borderRadius: 0,
+            ),
           ),
           Padding(
             padding: const EdgeInsets.all(20),

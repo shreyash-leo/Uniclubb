@@ -331,9 +331,10 @@ class _PublicProfileScreenState extends State<PublicProfileScreen> {
                       physics: const NeverScrollableScrollPhysics(),
                       gridDelegate:
                           const SliverGridDelegateWithFixedCrossAxisCount(
-                        crossAxisCount: 3,
-                        crossAxisSpacing: 3,
-                        mainAxisSpacing: 3,
+                        crossAxisCount: 2,
+                        childAspectRatio: 4 / 3,
+                        crossAxisSpacing: 8,
+                        mainAxisSpacing: 8,
                       ),
                       itemCount: data.events.length,
                       itemBuilder: (context, index) {
@@ -349,7 +350,7 @@ class _PublicProfileScreenState extends State<PublicProfileScreen> {
                             url: event['flyer_url'] as String?,
                             width: double.infinity,
                             height: double.infinity,
-                            borderRadius: 4,
+                            borderRadius: 12,
                           ),
                         );
                       },

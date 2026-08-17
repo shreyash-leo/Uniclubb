@@ -30,12 +30,10 @@ class _ClubsHubScreenState extends State<ClubsHubScreen> {
           title: const Text('Clubs'),
           actions: const [NotificationAction()],
           bottom: const TabBar(
-            isScrollable: true,
-            tabAlignment: TabAlignment.center,
             tabs: [
-              Tab(text: 'Discover'),
-              Tab(text: 'My clubs'),
-              Tab(text: 'Leaderboard'),
+              Tab(height: 40, text: 'Discover'),
+              Tab(height: 40, text: 'My clubs'),
+              Tab(height: 40, text: 'Leaderboard'),
             ],
           ),
         ),

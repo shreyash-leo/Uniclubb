@@ -710,10 +710,12 @@ class _StoryStripState extends State<_StoryStrip> {
                         children: [
                           Container(
                             padding: const EdgeInsets.all(2.5),
-                            decoration: const BoxDecoration(
+                            decoration: BoxDecoration(
                               shape: BoxShape.circle,
-                              gradient: LinearGradient(
-                                  colors: [Colors.deepPurple, Colors.orange]),
+                              border: Border.all(
+                                color: Theme.of(context).colorScheme.primary,
+                                width: 2,
+                              ),
                             ),
                             child: NetworkPicture(
                               url: story['media_url'] as String?,

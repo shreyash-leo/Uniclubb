@@ -38,4 +38,17 @@ class Validators {
     }
     return null;
   }
+
+  static String? username(String? value) {
+    final requiredError = requiredField(value, label: 'Username');
+    if (requiredError != null) return requiredError;
+    final normalized = value!.trim().toLowerCase();
+    if (normalized.length < 3 || normalized.length > 30) {
+      return 'Use 3–30 characters';
+    }
+    if (!RegExp(r'^[a-z0-9_]+$').hasMatch(normalized)) {
+      return 'Use only letters, numbers and underscores';
+    }
+    return null;
+  }
 }
